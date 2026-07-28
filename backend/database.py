@@ -118,10 +118,10 @@ class Database:
             conn.commit()
             return cursor.lastrowid
         except sqlite3.IntegrityError:
-            # Update existing
+            # Update existing and reset status to ready
             cursor.execute("""
                 UPDATE smtp_accounts 
-                SET password=?, token=?, client_id=?
+                SET password=?, token=?, client_id=?, status='ready'
                 WHERE email=?
             """, (password, token, client_id, email))
             conn.commit()
@@ -148,6 +148,14 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute("UPDATE smtp_accounts SET status=? WHERE email=?", (status, email))
+        conn.commit()
+        conn.close()
+        
+    def update_smtp_token(self, email: str, token: str):
+        """Update SMTP token (refresh token)"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE smtp_accounts SET token=? WHERE email=?", (token, email))
         conn.commit()
         conn.close()
     
@@ -182,6 +190,29 @@ class Database:
         """, (email, name))
         conn.commit()
         conn.close()
+        
+    def add_or_reset_recipient(self, email: str, name: str = "") -> bool:
+        """Add recipient if not exists, or reset existing status to pending"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM recipients WHERE email=?", (email,))
+        row = cursor.fetchone()
+        if row:
+            cursor.execute("""
+                UPDATE recipients 
+                SET name=?, status='pending', error_message=NULL 
+                WHERE email=?
+            """, (name, email))
+            is_new = False
+        else:
+            cursor.execute("""
+                INSERT INTO recipients (email, name, status, error_message)
+                VALUES (?, ?, 'pending', NULL)
+            """, (email, name))
+            is_new = True
+        conn.commit()
+        conn.close()
+        return is_new
     
     def get_recipients(self, status: Optional[str] = None) -> List[Dict]:
         """Get recipients"""

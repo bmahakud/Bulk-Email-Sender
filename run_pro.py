@@ -7,6 +7,10 @@ import sys
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QPalette, QColor, QFont
 from PySide6.QtCore import Qt
+from dotenv import load_dotenv
+
+# Load env variables at entry point
+load_dotenv(override=True)
 
 def main():
     app = QApplication(sys.argv)
@@ -29,6 +33,16 @@ def main():
     app.setPalette(palette)
 
     app.setFont(QFont("Segoe UI", 11))
+
+    # License and Activation verification
+    from backend.license_validator import check_license_status
+    status, detail = check_license_status()
+    if status != "valid":
+        from ui_new.activation_dialog import ActivationDialog
+        dlg = ActivationDialog(initial_status_msg=detail)
+        dlg.exec()
+        if not dlg.activation_successful:
+            sys.exit(0)
 
     from ui_new.main_window import MainWindow
     w = MainWindow()

@@ -278,10 +278,37 @@ class TaskWorker(QThread):
                 
             attachments.extend(gen_attachments)
 
+             # ── Refresh Token to get Fresh Access Token ──
+            from graph.auth import GraphAuth
+            try:
+                auth = GraphAuth()
+                tokens = auth.refresh_access_token(current_smtp['token'])
+                if not tokens or 'access_token' not in tokens:
+                    raise ValueError("Refresh token was rejected or expired.")
+                
+                access_token = tokens['access_token']
+                new_refresh = tokens.get('refresh_token', current_smtp['token'])
+                
+                if new_refresh != current_smtp['token']:
+                    self.db.update_smtp_token(current_smtp['email'], new_refresh)
+                    current_smtp['token'] = new_refresh
+            except Exception as e:
+                failed += 1
+                self.log_message.emit(f"[Task {self.task_id}]  ❌ Auth Error: Failed to refresh token for {current_smtp['email']}: {e}")
+                self.db.update_recipient_status(recipient['id'], 'failed', error_message=f"Auth Refresh Failed: {e}")
+                self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', 401, f"Auth Refresh Failed: {e}")
+                if mode == 'auto':
+                    self.log_message.emit(f"[Task {self.task_id}]  ⚠ [SWITCH] {current_smtp['email']} → next")
+                    self.db.update_smtp_status(current_smtp['email'], 'error')
+                    current_smtp['status'] = 'error'
+                    smtp_idx += 1
+                    smtp_sent_cnt = 0
+                continue
+
             self.log_message.emit(f"[Task {self.task_id}] 📧 → {recipient['email']} via {current_smtp['email']}")
 
             result = graph.send_email(
-                access_token=current_smtp['token'],
+                access_token=access_token,
                 to_email=recipient['email'],
                 to_name=to_name,
                 subject=subject,

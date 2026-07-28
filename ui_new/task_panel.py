@@ -6,6 +6,7 @@ All tabs use QScrollArea so nothing is ever hidden.
 import csv
 import base64
 import random
+import os
 from pathlib import Path
 from datetime import datetime
 
@@ -285,6 +286,15 @@ class TaskPanel(QWidget):
         lay = QVBoxLayout(inner)
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(10)
+
+        # Interactive OAuth Login
+        g_oauth = QGroupBox("Microsoft 365 OAuth Login")
+        gl_oauth = QHBoxLayout()
+        b_oauth = QPushButton("🔑 Link Microsoft Account"); b_oauth.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_oauth.clicked.connect(self._interactive_microsoft_login)
+        gl_oauth.addWidget(b_oauth)
+        gl_oauth.addStretch()
+        g_oauth.setLayout(gl_oauth); lay.addWidget(g_oauth)
 
         # Single SMTP
         g1 = QGroupBox("Single SMTP  —  Paste one account line to test")
@@ -799,6 +809,39 @@ class TaskPanel(QWidget):
         if not accounts:
             QMessageBox.warning(self, "No SMTP", "No ready SMTP accounts in database.")
 
+    def _interactive_microsoft_login(self):
+        try:
+            self._log("🔑 Initiating interactive Microsoft login...")
+            from graph.auth import GraphAuth
+            auth = GraphAuth()
+            self._log(f"Configured Client ID: {auth.client_id}")
+            self._log(f"Configured Tenant ID: {auth.tenant_id}")
+            self._log(f"Configured Authority: {auth.authority}")
+            result = auth.acquire_token_interactive()
+            if result and "access_token" in result:
+                user_info = auth.get_user_info(result["access_token"])
+                email = "your-email@outlook.com"
+                if user_info:
+                    email = user_info.get("userPrincipalName") or user_info.get("mail") or email
+                
+                client_id = os.getenv("CLIENT_ID", "your_client_id_here")
+                refresh_token = result.get("refresh_token", result["access_token"])
+                
+                # Save to database
+                self.db.add_smtp_account(email, "dummy_password", refresh_token, client_id)
+                self.refresh_smtp_list()
+                self._log(f"✅ Microsoft account linked: {email}")
+                
+                QMessageBox.information(
+                    self, "Success", f"Successfully linked Microsoft account:\n{email}"
+                )
+            else:
+                self._log("❌ Microsoft Login failed: No token was returned")
+                QMessageBox.warning(self, "Error", "Failed to acquire login token.")
+        except Exception as e:
+            self._log(f"❌ Microsoft Login error: {e}")
+            QMessageBox.critical(self, "Error", f"Microsoft Login failed:\n{str(e)}")
+
     # ── Content helpers ───────────────────────────────────────────────────────
     def _add_html(self):
         files, _ = QFileDialog.getOpenFileNames(
@@ -834,7 +877,6 @@ class TaskPanel(QWidget):
         }
 
     def _recipients_to_db(self):
-        existing = {r['email'] for r in self.db.get_recipients()}
         added = 0
         for line in self.txt_recipients.toPlainText().split('\n'):
             line = line.strip()
@@ -843,9 +885,8 @@ class TaskPanel(QWidget):
             parts = line.split(',')
             email = parts[0].strip()
             name  = parts[1].strip() if len(parts) > 1 else ""
-            if email not in existing:
-                self.db.add_recipient(email, name)
-                added += 1
+            self.db.add_or_reset_recipient(email, name)
+            added += 1
         return added
 
     def _get_html_templates(self):

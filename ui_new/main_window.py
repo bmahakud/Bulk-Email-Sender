@@ -282,12 +282,30 @@ class MainWindow(QMainWindow):
         sub.setFont(QFont("Segoe UI", 11))
         sub.setStyleSheet("color:#7289da; font-size:12px; margin-left:16px; letter-spacing:0.5px;")
 
+        # Decode customer name from license token if present
+        customer_name = ""
+        try:
+            token = self.db.get_setting("license_token", default="")
+            if token:
+                from backend.license_validator import verify_token
+                payload = verify_token(token)
+                customer_name = payload.get("customer_name", "")
+        except Exception:
+            pass
+
         self.lbl_online = QLabel("● Active Operations")
         self.lbl_online.setStyleSheet("color:#43b581; font-size:12px; font-weight:600;")
 
         lay.addWidget(logo)
         lay.addWidget(ver)
         lay.addWidget(sub)
+        
+        if customer_name:
+            lbl_lic = QLabel(f"Licensed to: {customer_name}")
+            lbl_lic.setFont(QFont("Segoe UI", 11, QFont.Bold))
+            lbl_lic.setStyleSheet("color:#00d4aa; margin-left:25px;")
+            lay.addWidget(lbl_lic)
+            
         lay.addStretch()
         lay.addWidget(self.lbl_online)
         return bar
