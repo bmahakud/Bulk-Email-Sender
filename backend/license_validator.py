@@ -15,7 +15,7 @@ from backend.database import Database
 LICENSE_HMAC_SECRET = b"ProMailerSecureActivationSecretKey2026!#"
 
 # Default activation server URL (User can host this custom web admin panel)
-DEFAULT_SERVER_URL = "http://localhost:5000"
+DEFAULT_SERVER_URL = "https://promailer-licensing.diracai.com"
 
 def get_machine_id() -> str:
     """Generates a unique hardware-based fingerprint for Windows/Linux machine."""

@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProMailer Pro | Web Command Center</title>
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-icon">📬</div>
+                <div class="brand-text">
+                    <h1>ProMailer Pro</h1>
+                    <span>Web Command Center</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-menu">
+                <button class="menu-item active" data-tab="dashboard">
+                    <span class="menu-icon">📊</span> Dashboard
+                </button>
+                <button class="menu-item" data-tab="smtp">
+                    <span class="menu-icon">📧</span> SMTP Accounts
+                </button>
+                <button class="menu-item" data-tab="recipients">
+                    <span class="menu-icon">👥</span> Recipients Pool
+                </button>
+                <button class="menu-item" data-tab="content">
+                    <span class="menu-icon">✍️</span> Email Content
+                </button>
+                <button class="menu-item" data-tab="limits">
+                    <span class="menu-icon">⚙️</span> Delays & Limits
+                </button>
+            </nav>
+
+            <div class="system-health">
+                <div class="health-header">
+                    <span>System Engine</span>
+                    <span class="badge badge-success">Online</span>
+                </div>
+                <div class="health-bar">
+                    <div class="fill" style="width: 100%;"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main class="workspace">
+            <header class="workspace-header">
+                <div class="header-title">
+                    <h2 id="current-tab-title">Analytics Dashboard</h2>
+                    <p id="current-tab-subtitle">Real-time mail distribution overview</p>
+                </div>
+
+                <div class="header-actions">
+                    <div class="global-status-pill idle" id="global-status-indicator">
+                        <span class="status-dot"></span>
+                        <span class="status-name">Engine Idle</span>
+                    </div>
+                    <button class="btn btn-primary" id="btn-global-start">🚀 Run Campaign</button>
+                    <button class="btn btn-warning" id="btn-global-pause" disabled>⏸ Pause</button>
+                    <button class="btn btn-danger" id="btn-global-stop" disabled>⏹ Terminate</button>
+                </div>
+            </header>
+
+            <!-- TAB: Dashboard -->
+            <section class="tab-content active" id="tab-dashboard">
+                <div class="stats-grid">
+                    <div class="stat-card card-warning" style="border-left: 4px solid var(--warning-color, #f59e0b);">
+                        <div class="stat-header">
+                            <span class="stat-title">SMTP Accounts</span>
+                            <span class="stat-icon">📧</span>
+                        </div>
+                        <div class="stat-value" id="stat-smtp-count">0</div>
+                        <div class="stat-footer">Sender registry pool</div>
+                    </div>
+                    <div class="stat-card card-info">
+                        <div class="stat-header">
+                            <span class="stat-title">To Recipients</span>
+                            <span class="stat-icon">👥</span>
+                        </div>
+                        <div class="stat-value" id="stat-recipients-count">0</div>
+                        <div class="stat-footer" id="stat-pending-info">0 pending in queue</div>
+                    </div>
+                    <div class="stat-card card-success">
+                        <div class="stat-header">
+                            <span class="stat-title">Delivered</span>
+                            <span class="stat-icon">✅</span>
+                        </div>
+                        <div class="stat-value" id="stat-sent-count">0</div>
+                        <div class="stat-footer">Successful sends</div>
+                    </div>
+                    <div class="stat-card card-danger">
+                        <div class="stat-header">
+                            <span class="stat-title">Bounced/Failed</span>
+                            <span class="stat-icon">❌</span>
+                        </div>
+                        <div class="stat-value" id="stat-failed-count">0</div>
+                        <div class="stat-footer" id="stat-fail-info">0% error rate</div>
+                    </div>
+                </div>
+
+                <div class="dashboard-details">
+                    <div class="panel main-chart-panel">
+                        <div class="panel-header">
+                            <h3>Campaign Sending Progress</h3>
+                        </div>
+                        <div class="progress-details">
+                            <div class="progress-info">
+                                <span class="progress-label">Overall Completion</span>
+                                <span class="progress-val" id="progress-percentage-text">0%</span>
+                            </div>
+                            <div class="progress-track">
+                                <div class="progress-fill" id="dashboard-progress-fill" style="width: 0%;"></div>
+                            </div>
+                        </div>
+                        <div class="live-activity-box">
+                            <div class="activity-header">
+                                <h3>Engine Activity Feed</h3>
+                                <button class="btn btn-sm btn-outline" id="btn-clear-logs">Clear Screen</button>
+                            </div>
+                            <div class="log-stream" id="log-monitor">
+                                <div class="log-entry system-msg">[SYSTEM] Engine initialized. Awaiting template, SMTPs
+                                    and mailing list.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel status-panel">
+                        <div class="panel-header">
+                            <h3>Active Connection</h3>
+                        </div>
+                        <div class="active-connection-card">
+                            <div class="conn-icon">🌐</div>
+                            <div class="conn-label">Current Rotating Sender:</div>
+                            <div class="conn-addr" id="active-smtp-display">None - Idle</div>
+                        </div>
+
+                        <div class="rotation-log">
+                            <div class="panel-header" style="padding: 0 0 10px 0;">
+                                <h4>SMTP Rotation Slots</h4>
+                            </div>
+                            <ul class="mini-smtp-slots" id="mini-smtp-slots">
+                                <li class="empty-slot">Register SMTP accounts to view rotation slots.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: SMTP Accounts -->
+            <section class="tab-content" id="tab-smtp">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h3>Microsoft Graph & Outlook Accounts</h3>
+                            <p>Import and validation settings</p>
+                        </div>
+                        <div class="header-buttons">
+                            <button class="btn btn-outline" id="btn-link-ms">🔗 Link Microsoft Account</button>
+                            <button class="btn btn-outline" id="btn-paste-smtp">📋 Paste Bulk</button>
+                            <button class="btn btn-outline float-upload" id="btn-upload-smtp">
+                                📂 Load Excel / CSV
+                                <input type="file" id="file-input-smtp" accept=".csv,.xlsx,.xls" style="display:none;">
+                            </button>
+                            <button class="btn btn-danger-outline" id="btn-clear-smtps">🗑 Clear All</button>
+                        </div>
+                    </div>
+
+                    <!-- Add Single Account Form -->
+                    <form class="config-grid shadow-form" id="form-add-smtp" style="margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label>Outlook Email</label>
+                            <input type="email" id="smtp-email" placeholder="example@outlook.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label>App Password / Dummy</label>
+                            <input type="password" id="smtp-password" placeholder="••••••••••••" value="dummy_password">
+                        </div>
+                        <div class="form-group">
+                            <label>Refresh/Auth Token</label>
+                            <input type="text" id="smtp-token" placeholder="M.R3_BAY.Abc123xyz..." required>
+                        </div>
+                        <div class="form-group">
+                            <label>Client ID (Test ID)</label>
+                            <input type="text" id="smtp-client-id" placeholder="0dcc03c9-4d8d-413a-896b-308559661ed9"
+                                value="0dcc03c9-4d8d-413a-896b-308559661ed9" required>
+                        </div>
+                        <div class="form-group form-actions-align">
+                            <button type="submit" class="btn btn-primary" style="width: 100%;">+ Register
+                                Account</button>
+                        </div>
+                    </form>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Outlook Account</th>
+                                    <th>Client ID (Test ID)</th>
+                                    <th>OAuth Refresh Token (Snippet)</th>
+                                    <th>Dispatches</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="smtp-table-body">
+                                <tr>
+                                    <td colspan="6" class="empty-state">No SMTP accounts added yet. Link a Microsoft
+                                        account or paste your credential pool.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: Recipients -->
+            <section class="tab-content" id="tab-recipients">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h3>Target Recipients Pool</h3>
+                            <p>Dynamic campaign recipient checklist</p>
+                        </div>
+                        <div class="header-buttons">
+                            <button class="btn btn-outline" id="btn-paste-recipients">📋 Paste Bulk</button>
+                            <button class="btn btn-outline float-upload" id="btn-upload-recipients">
+                                📂 Upload CSV / Excel
+                                <input type="file" id="file-input-recipients" accept=".csv,.xlsx,.xls"
+                                    style="display:none;">
+                            </button>
+                            <button class="btn btn-danger-outline" id="btn-clear-recipients">🗑 Clear Pool</button>
+                        </div>
+                    </div>
+
+                    <!-- Single recipient add -->
+                    <form class="add-single-row shadow-form" id="form-add-recipient">
+                        <div class="form-group">
+                            <input type="email" id="rec-email" placeholder="recipient@domain.com" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="text" id="rec-name" placeholder="Contact Name (Optional)">
+                        </div>
+                        <button type="submit" class="btn btn-primary">+ Add Recipient</button>
+                    </form>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Recipient Email</th>
+                                    <th>Contact Name</th>
+                                    <th>Dispatch Status</th>
+                                    <th>Error logs</th>
+                                    <th>Created Date</th>
+                                    <th>Delete</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recipients-table-body">
+                                <tr>
+                                    <td colspan="6" class="empty-state">Recipient pool is empty. Add static entries or
+                                        import a CSV mailing list.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: Email Content -->
+            <section class="tab-content" id="tab-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>Design Content Layout</h3>
+                        <p>Dynamic template rotations, tags, and attachment definitions</p>
+                    </div>
+
+                    <div class="content-config-box">
+                        <div class="config-sidebar">
+                            <div class="group-box">
+                                <label class="section-label">Email Presentation Mode</label>
+                                <div class="radio-options">
+                                    <label class="radio-label active">
+                                        <input type="radio" name="body_mode" value="html" checked>
+                                        <span>HTML Only</span>
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="body_mode" value="text">
+                                        <span>Plain Text Fallback</span>
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="body_mode" value="body_img">
+                                        <span>Inline Images</span>
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="body_mode" value="body_pdf">
+                                        <span>PDF Attachments</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="group-box">
+                                <label class="section-label">Dynamic Mail Tags Reference</label>
+                                <p class="tag-hint">Click tags below to insert them into your text boxes:</p>
+                                <div class="tag-pill-container">
+                                    <span class="tag-pill" onclick="insertTag('#NAME#')">#NAME#</span>
+                                    <span class="tag-pill" onclick="insertTag('#EMAIL#')">#EMAIL#</span>
+                                    <span class="tag-pill" onclick="insertTag('#TFN1#')">#TFN1#</span>
+                                    <span class="tag-pill" onclick="insertTag('#TFN2#')">#TFN2#</span>
+                                    <span class="tag-pill" onclick="insertTag('#DATE#')">#DATE#</span>
+                                    <span class="tag-pill" onclick="insertTag('#TIME#')">#TIME#</span>
+                                    <span class="tag-pill" onclick="insertTag('#INVOICE#')">#INVOICE#</span>
+                                    <span class="tag-pill" onclick="insertTag('#ORDERID#')">#ORDERID#</span>
+                                    <span class="tag-pill" onclick="insertTag('#TXNID#')">#TXNID#</span>
+                                    <span class="tag-pill" onclick="insertTag('#AMOUNT#')">#AMOUNT#</span>
+                                    <span class="tag-pill" onclick="insertTag('#ADDRESS#')">#ADDRESS#</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="config-main">
+                            <!-- Rotated Subject Lines -->
+                            <div class="form-group-full">
+                                <label class="section-label">Rotating Spark Subject Lines (One per line — rotates every
+                                    dispatch)</label>
+                                <textarea id="campaign-subjects" rows="3"
+                                    placeholder="Confirming transaction #TXNID# — Order #ORDERID#&#10;Your receipt for payment of $#AMOUNT#&#10;Important message for #NAME# — ProMailer Pro"></textarea>
+                            </div>
+
+                            <!-- Rotated Sender Names -->
+                            <div class="form-group-full mt-3">
+                                <label class="section-label">Rotating Sender Display Names (One per line)</label>
+                                <div class="checkbox-bar">
+                                    <input type="checkbox" id="chk-default-sender" checked>
+                                    <label for="chk-default-sender">Default back to SMTP Outlook email address</label>
+                                </div>
+                                <textarea id="campaign-senders" rows="2"
+                                    placeholder="Support Desk&#10;Accounts Team&#10;Billing Billing Division"
+                                    disabled></textarea>
+                            </div>
+
+                            <!-- Plain text body -->
+                            <div class="form-group-full mt-3" id="plain-text-body-group">
+                                <label class="section-label">Email Plain Text Body</label>
+                                <textarea id="campaign-body-plain" rows="8"
+                                    placeholder="Hello #NAME#,&#10;&#10;Your payment of $#AMOUNT# was successfully processed.&#10;Invoice ID: #INVOICE#&#10;Transaction: #TXNID#&#10;&#10;To speak with our team, contactsupport: #TFN1#.&#10;&#10;Thanks!"></textarea>
+                            </div>
+
+                            <!-- HTML templates list -->
+                            <div class="form-group-full mt-3" id="html-templates-group">
+                                <label class="section-label">Upload Rotated HTML Files</label>
+                                <div class="file-uploader-box">
+                                    <button class="btn btn-outline" type="button" id="btn-add-html-file">Add HTML
+                                        Files</button>
+                                    <input type="file" id="file-input-html" accept=".html,.htm" multiple
+                                        style="display:none;">
+                                    <ul class="file-path-list" id="html-paths-list">
+                                        <li class="empty-li">No HTML templates uploaded. Defaulting to plain text
+                                            template.</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Attachments -->
+                            <div class="form-group-full mt-3" id="attachments-group">
+                                <label class="section-label">File Attachments (Auto-encodes to base64, auto-renames with
+                                    prefix+random 4 digits)</label>
+                                <div class="file-uploader-box">
+                                    <div class="flex-row gap-2">
+                                        <button class="btn btn-outline" type="button" id="btn-add-attachments">Upload
+                                            PDF / PNG Files</button>
+                                        <input type="file" id="file-input-attachments" accept=".pdf,.png,.jpg,.jpeg"
+                                            multiple style="display:none;">
+                                    </div>
+                                    <ul class="file-path-list" id="attachment-paths-list">
+                                        <li class="empty-li">No attachments selected.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: Delays & Limits -->
+            <section class="tab-content" id="tab-limits">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3>Engine Timing, Rotations & Limits</h3>
+                        <p>Configure protection thresholds for spam protection</p>
+                    </div>
+
+                    <div class="limits-grid shadow-form">
+                        <div class="form-group">
+                            <label>Delay Between Messages (seconds)</label>
+                            <input type="number" id="limits-delay" min="0" max="60" step="0.5" value="1.0">
+                            <small>Slight delays prevent Office365 throttling.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>SMTP Rotation Trigger Style</label>
+                            <div class="flex-col gap-2 mt-2">
+                                <label class="radio-label">
+                                    <input type="radio" name="smtp_rotate_mode" value="auto" checked>
+                                    <span>Auto-switch SMTP on Auth/HTTP errors</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="smtp_rotate_mode" value="limit">
+                                    <span>Rotate after sending N emails</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Emails Limit Per SMTP Session</label>
+                            <input type="number" id="limits-per-smtp" min="1" max="500" value="5">
+                            <small>Only applies if "Rotate after sending N emails" is selected.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Campaign Safeguard Thresholds</label>
+                            <div class="flex-row align-items-center gap-2 mt-2">
+                                <input type="checkbox" id="chk-auto-remove" checked>
+                                <label for="chk-auto-remove">Remove sent accounts from pool automatically</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals for Copy Pasting -->
+    <div class="modal" id="modal-paste">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Paste Data</h3>
+                <span class="modal-close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p id="modal-desc">Paste lines here</p>
+                <textarea id="modal-textarea" rows="10" placeholder=""></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" id="btn-modal-submit">Import Data</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script References -->
+    <script src="app.js"></script>
+</body>
+
+</html>

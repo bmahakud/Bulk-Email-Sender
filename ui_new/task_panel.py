@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QPushButton, QLabel, QTextEdit, QLineEdit,
     QFileDialog, QGroupBox, QRadioButton, QCheckBox,
-    QSpinBox, QDoubleSpinBox, QListWidget,
+    QSpinBox, QDoubleSpinBox, QListWidget, QGridLayout,
     QListWidgetItem, QTabWidget, QFrame, QFormLayout,
     QScrollArea, QMessageBox, QDialog, QDialogButtonBox,
     QSizePolicy
@@ -54,7 +54,38 @@ SHARED_SS = """
                 border-radius:6px; margin-top:14px; padding-top:18px; background:#1e1f2e; }
     QGroupBox::title { subcontrol-origin:margin; left:12px; padding:0 6px; color:#c0c8e8; }
     QCheckBox, QRadioButton { color:#c0c8e8; spacing:6px; }
-    QCheckBox::indicator, QRadioButton::indicator { width:14px; height:14px; }
+    QCheckBox:checked, QRadioButton:checked { color:#ffffff; font-weight:bold; }
+    QRadioButton::indicator {
+        width: 14px;
+        height: 14px;
+        border-radius: 9px;
+        border: 2px solid #4a4d6d;
+        background-color: #1a1b27;
+    }
+    QRadioButton::indicator:hover {
+        border-color: #5865f2;
+    }
+    QRadioButton::indicator:checked {
+        border: 2px solid #5865f2;
+        background-color: qradialgradient(cx:0.5, cy:0.5, radius:0.4, fx:0.5, fy:0.5,
+                                        stop:0 #ffffff, stop:0.6 #ffffff,
+                                        stop:0.7 #5865f2, stop:1.0 #5865f2);
+    }
+    QCheckBox::indicator {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        border: 2px solid #4a4d6d;
+        background-color: #1a1b27;
+    }
+    QCheckBox::indicator:hover {
+        border-color: #5865f2;
+    }
+    QCheckBox::indicator:checked {
+        border: 2px solid #5865f2;
+        background-color: #5865f2;
+        image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'><path d='M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/></svg>");
+    }
     QScrollArea { background:#1a1b27; border:none; }
     QScrollBar:vertical { background:#1a1b27; width:8px; border-radius:4px; }
     QScrollBar::handle:vertical { background:#3d3f52; border-radius:4px; min-height:30px; }
@@ -411,16 +442,40 @@ class TaskPanel(QWidget):
 
         # Body mode
         g_mode = QGroupBox("Email Body Mode")
-        mr = QHBoxLayout()
-        self.rb_body_text = QRadioButton("Body Text")
-        self.rb_body_html = QRadioButton("HTML (Inline Base64 img)")
-        self.rb_body_pdf  = QRadioButton("Body + PDF Attachment")
-        self.rb_body_img  = QRadioButton("Body + Image Attachment")
-        self.rb_body_html.setChecked(True)
-        for rb in (self.rb_body_text, self.rb_body_html, self.rb_body_pdf, self.rb_body_img):
-            mr.addWidget(rb)
-        mr.addStretch()
-        g_mode.setLayout(mr); lay.addWidget(g_mode)
+        grid_mode = QGridLayout(g_mode)
+        grid_mode.setSpacing(10)
+        
+        self.rb_body_img = QRadioButton("Body+Img")
+        self.rb_body_pdf = QRadioButton("Body+PDF")
+        self.rb_body_img_pdf = QRadioButton("Body+Img+PDF")
+        
+        self.rb_inline_attach = QRadioButton("Inline+Attach")
+        self.rb_inline_pdf = QRadioButton("Inline+PDF")
+        self.rb_text_inline = QRadioButton("Text+Inline")
+        self.rb_text_only = QRadioButton("Text Only")
+        self.rb_html_only = QRadioButton("HTML Only")
+        
+        self.rb_html_only.setChecked(True)
+        
+        # Row 0
+        grid_mode.addWidget(self.rb_body_img, 0, 0)
+        grid_mode.addWidget(self.rb_body_pdf, 0, 1)
+        grid_mode.addWidget(self.rb_body_img_pdf, 0, 2)
+        
+        # Row 1
+        grid_mode.addWidget(self.rb_inline_attach, 1, 0)
+        grid_mode.addWidget(self.rb_inline_pdf, 1, 1)
+        grid_mode.addWidget(self.rb_text_inline, 1, 2)
+        grid_mode.addWidget(self.rb_text_only, 1, 3)
+        grid_mode.addWidget(self.rb_html_only, 1, 4)
+        
+        lay.addWidget(g_mode)
+
+        # Connect signals
+        for rb in (self.rb_body_img, self.rb_body_pdf, self.rb_body_img_pdf,
+                   self.rb_inline_attach, self.rb_inline_pdf, self.rb_text_inline,
+                   self.rb_text_only, self.rb_html_only):
+            rb.toggled.connect(self._update_content_visibility)
 
         # Subject lines
         g_sub = QGroupBox("Subject Lines  (rotation — one per line)")
@@ -464,8 +519,8 @@ class TaskPanel(QWidget):
         snl.addWidget(self.txt_senders)
         g_snd.setLayout(snl); lay.addWidget(g_snd)
 
-        # Body plain text — with detailed guidance label
-        g_txt = QGroupBox("Body Text  (plain text / fallback if no HTML)")
+        # Body plain text
+        self.g_txt = QGroupBox("Body Text  (plain text / fallback if no HTML)")
         tl = QVBoxLayout()
 
         body_hint = QLabel(
@@ -503,10 +558,10 @@ class TaskPanel(QWidget):
         )
         self.txt_body_plain.setFixedHeight(200)
         tl.addWidget(self.txt_body_plain)
-        g_txt.setLayout(tl); lay.addWidget(g_txt)
+        self.g_txt.setLayout(tl); lay.addWidget(self.g_txt)
 
         # HTML templates
-        g_html = QGroupBox("HTML Templates  (multiple files = rotation  +  base64 inline images)")
+        self.g_html = QGroupBox("HTML Templates  (multiple files = rotation  +  base64 inline images)")
         hl = QVBoxLayout()
         hl.addWidget(QLabel("💡 Upload HTML files — images inside <img src='…'> auto-embedded as base64."))
         br = QHBoxLayout()
@@ -521,12 +576,17 @@ class TaskPanel(QWidget):
         self.chk_inline_b64 = QCheckBox("Convert images to base64 inline  (recommended — avoids spam filters)")
         self.chk_inline_b64.setChecked(True)
         hl.addWidget(self.chk_inline_b64)
-        g_html.setLayout(hl); lay.addWidget(g_html)
+        self.g_html.setLayout(hl); lay.addWidget(self.g_html)
 
         # Attachments
-        g_att = QGroupBox("Attachments  (personalised filename = email-prefix + 4 random digits)")
+        self.g_att = QGroupBox("Attachments  (personalised filename = email-prefix + 4 random digits)")
         al = QVBoxLayout()
 
+        # Image Container
+        self.wdg_img_att = QWidget()
+        self.wdg_img_att.setStyleSheet("background:transparent;")
+        img_lay = QVBoxLayout(self.wdg_img_att)
+        img_lay.setContentsMargins(0, 0, 0, 0)
         ir = QHBoxLayout()
         b_add_i = QPushButton("+ Image Attachments  (GIF/PNG/JPG/WEBP → base64)")
         b_add_i.setStyleSheet(BTN("#43b581", "#369e6b"))
@@ -534,29 +594,40 @@ class TaskPanel(QWidget):
         b_clr_i = QPushButton("Clear"); b_clr_i.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_i.clicked.connect(lambda: self.img_att_list.clear())
         ir.addWidget(b_add_i); ir.addWidget(b_clr_i); ir.addStretch()
-        al.addLayout(ir)
+        img_lay.addLayout(ir)
         self.img_att_list = QListWidget(); self.img_att_list.setFixedHeight(70)
-        al.addWidget(self.img_att_list)
+        img_lay.addWidget(self.img_att_list)
+        al.addWidget(self.wdg_img_att)
 
+        # PDF Container
+        self.wdg_pdf_att = QWidget()
+        self.wdg_pdf_att.setStyleSheet("background:transparent;")
+        pdf_lay = QVBoxLayout(self.wdg_pdf_att)
+        pdf_lay.setContentsMargins(0, 0, 0, 0)
         pr = QHBoxLayout()
         b_add_p = QPushButton("+ PDF Attachments → base64"); b_add_p.setStyleSheet(BTN("#f0a500", "#c88a00"))
         b_add_p.clicked.connect(self._add_pdf_att)
         b_clr_p = QPushButton("Clear"); b_clr_p.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_p.clicked.connect(lambda: self.pdf_att_list.clear())
         pr.addWidget(b_add_p); pr.addWidget(b_clr_p); pr.addStretch()
-        al.addLayout(pr)
+        pdf_lay.addLayout(pr)
         self.pdf_att_list = QListWidget(); self.pdf_att_list.setFixedHeight(70)
-        al.addWidget(self.pdf_att_list)
+        pdf_lay.addWidget(self.pdf_att_list)
+        al.addWidget(self.wdg_pdf_att)
 
-        note = QLabel(
+        self.lbl_note = QLabel(
             "📌 Name example:  groupleeman4829.png  /  groupleeman4829.pdf\n"
             "   (email prefix + 4 random digits — @domain.com is NOT included)")
-        note.setStyleSheet("color:#7880a0; font-size:11px; margin-top:4px;")
-        al.addWidget(note)
-        g_att.setLayout(al); lay.addWidget(g_att)
+        self.lbl_note.setStyleSheet("color:#7880a0; font-size:11px; margin-top:4px;")
+        al.addWidget(self.lbl_note)
+        self.g_att.setLayout(al); lay.addWidget(self.g_att)
         lay.addStretch()
 
         root_lay.addWidget(_scroll_wrap(inner), 1)
+
+        # Initial invocation
+        self._update_content_visibility()
+
         return outer
 
     # ── Delays & Limits tab ───────────────────────────────────────────────────
@@ -608,9 +679,10 @@ class TaskPanel(QWidget):
         g4 = QGroupBox("Available Tags  (quick reference)")
         tl = QVBoxLayout()
         tags_txt = QLabel(
-            "#NAME#  #EMAIL#  #TFN1#  #TFN2#  #DATE#  #TIME#\n"
-            "#INVOICE#  #ORDERID#  #TXNID#  #AMOUNT#  #TYPE#\n"
-            "#KEY#  #GUID#  #SNUMBER#  #ADDRESS#"
+            "#NAME#  #EMAIL#  #TFN#  #TFN1#  #TFN2#  #DATE#  #TIME#\n"
+            "#AMOUNT#  #INVOICE#  #ORDERID#  #ORDER#  #TXNID#  #TYPE#\n"
+            "#LETTERS#  #LICENSE#  #REGARDS#  #ADDRESS#\n"
+            "#KEY#  #GUID#  #NUMBER#  #RANDOM#  #SERIAL#  #SNUMBER#"
         )
         tags_txt.setFont(QFont("Courier New", 11))
         tags_txt.setStyleSheet("color:#00d4aa; background:#0d0e17; padding:12px; border-radius:5px;")
@@ -948,11 +1020,18 @@ class TaskPanel(QWidget):
         s(pfx + "inline_b64", "1" if self.chk_inline_b64.isChecked() else "0")
 
         # Body mode
-        if self.rb_body_text.isChecked():  bm = "text"
-        elif self.rb_body_html.isChecked(): bm = "html_image"
-        elif self.rb_body_pdf.isChecked():  bm = "body_pdf"
-        elif self.rb_body_img.isChecked():  bm = "body_img"
-        else: bm = "html_image"
+        if self.rb_text_only.isChecked():
+            bm = "text"
+        elif self.rb_inline_attach.isChecked() or self.rb_inline_pdf.isChecked():
+            bm = "html_image"
+        elif self.rb_text_inline.isChecked():
+            bm = "body_img"
+        elif self.rb_body_pdf.isChecked() or self.rb_body_img_pdf.isChecked():
+            bm = "body_pdf"
+        elif self.rb_body_img.isChecked():
+            bm = "body_img"
+        else:
+            bm = "html"
         s(pfx + "body_mode", bm)
 
         # HTML file paths
@@ -1004,10 +1083,31 @@ class TaskPanel(QWidget):
 
         # Body mode
         v = g(pfx + "body_mode")
-        if v == "text":       self.rb_body_text.setChecked(True)
-        elif v == "html_image": self.rb_body_html.setChecked(True)
-        elif v == "body_pdf":  self.rb_body_pdf.setChecked(True)
-        elif v == "body_img":  self.rb_body_img.setChecked(True)
+        # Block signals temporarily to prevent trigger loops during config load
+        for rb in (self.rb_body_img, self.rb_body_pdf, self.rb_body_img_pdf,
+                   self.rb_inline_attach, self.rb_inline_pdf, self.rb_text_inline,
+                   self.rb_text_only, self.rb_html_only):
+            rb.blockSignals(True)
+            
+        if v == "text":
+            self.rb_text_only.setChecked(True)
+        elif v == "html_image":
+            self.rb_inline_attach.setChecked(True)
+        elif v == "body_pdf":
+            self.rb_body_pdf.setChecked(True)
+        elif v == "body_img":
+            self.rb_text_inline.setChecked(True)
+        elif v == "html":
+            self.rb_html_only.setChecked(True)
+        else:
+            self.rb_html_only.setChecked(True)
+            
+        for rb in (self.rb_body_img, self.rb_body_pdf, self.rb_body_img_pdf,
+                   self.rb_inline_attach, self.rb_inline_pdf, self.rb_text_inline,
+                   self.rb_text_only, self.rb_html_only):
+            rb.blockSignals(False)
+            
+        self._update_content_visibility()
 
         # HTML file paths
         v = g(pfx + "html_paths")
@@ -1071,11 +1171,13 @@ class TaskPanel(QWidget):
         addresses = [a.strip() for a in self.txt_addresses.toPlainText().split('\n') if a.strip()]
 
         body_mode = "html"
-        if self.rb_body_text.isChecked():
+        if self.rb_text_only.isChecked():
             body_mode = "text"
-        elif self.rb_body_html.isChecked():
+        elif self.rb_inline_attach.isChecked() or self.rb_inline_pdf.isChecked():
             body_mode = "html_image"
-        elif self.rb_body_pdf.isChecked():
+        elif self.rb_text_inline.isChecked():
+            body_mode = "body_img"
+        elif self.rb_body_pdf.isChecked() or self.rb_body_img_pdf.isChecked():
             body_mode = "body_pdf"
         elif self.rb_body_img.isChecked():
             body_mode = "body_img"
@@ -1152,3 +1254,39 @@ class TaskPanel(QWidget):
         sb = self.log_box.verticalScrollBar()
         sb.setValue(sb.maximum())
         self.activity_logged.emit(self.task_id, msg)
+            
+    def _update_content_visibility(self):
+        show_html = False
+        show_txt = False
+        show_img_att = False
+        show_pdf_att = False
+        
+        if self.rb_body_img.isChecked():
+            show_html = True
+            show_img_att = True
+        elif self.rb_body_pdf.isChecked():
+            show_html = True
+            show_pdf_att = True
+        elif self.rb_body_img_pdf.isChecked():
+            show_html = True
+            show_img_att = True
+            show_pdf_att = True
+        elif self.rb_inline_attach.isChecked():
+            show_html = True
+            show_img_att = True
+        elif self.rb_inline_pdf.isChecked():
+            show_html = True
+            show_pdf_att = True
+        elif self.rb_text_inline.isChecked():
+            show_txt = True
+            show_html = True
+        elif self.rb_html_only.isChecked():
+            show_html = True
+        elif self.rb_text_only.isChecked():
+            show_txt = True
+            
+        self.g_html.setVisible(show_html)
+        self.g_txt.setVisible(show_txt)
+        self.wdg_img_att.setVisible(show_img_att)
+        self.wdg_pdf_att.setVisible(show_pdf_att)
+        self.g_att.setVisible(show_img_att or show_pdf_att)

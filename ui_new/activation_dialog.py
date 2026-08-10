@@ -1,7 +1,7 @@
 import sys
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QMessageBox, QFrame, QStyle
+    QPushButton, QMessageBox, QFrame, QStyle, QScrollArea, QWidget
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QIcon, QColor
@@ -16,7 +16,7 @@ class ActivationDialog(QDialog):
     def __init__(self, parent=None, initial_status_msg=""):
         super().__init__(parent)
         self.setWindowTitle("ProMailer Pro Activation")
-        self.setMinimumSize(560, 420)
+        self.setMinimumSize(560, 360)
         self.setWindowFlags(self.windowFlags() | Qt.CustomizeWindowHint)
         self.setWindowFlag(Qt.WindowCloseButtonHint, False) # Force user to enter license or exit
         
@@ -26,10 +26,14 @@ class ActivationDialog(QDialog):
     def _init_ui(self, status_msg):
         # Premium Dark Palette Stylesheet
         self.setStyleSheet("""
-            QDialog {
+            QDialog, #container {
                 background-color: #12131a;
                 color: #e8eaf0;
                 font-family: 'Segoe UI', Arial, sans-serif;
+            }
+            QScrollArea {
+                background-color: #12131a;
+                border: none;
             }
             QLabel {
                 color: #e8eaf0;
@@ -81,9 +85,20 @@ class ActivationDialog(QDialog):
             }
         """)
         
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(30, 30, 30, 30)
-        main_layout.setSpacing(20)
+        dialog_layout = QVBoxLayout(self)
+        dialog_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Create Scroll Area
+        scroll_area = QScrollArea(self)
+        scroll_area.setWidgetResizable(True)
+        
+        # Container widget for scroll area
+        container = QWidget()
+        container.setObjectName("container")
+        
+        main_layout = QVBoxLayout(container)
+        main_layout.setContentsMargins(25, 25, 25, 25)
+        main_layout.setSpacing(15)
         
         # 1. Header (Logo / Titles)
         header_layout = QVBoxLayout()
@@ -128,20 +143,10 @@ class ActivationDialog(QDialog):
         key_lbl = QLabel("Enter License Key:")
         key_lbl.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("e.g. PRO-XXXX-XXXX-XXXX")
-        
-        # Activation server URL
-        server_lbl = QLabel("Activation Server URL:")
-        server_lbl.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        self.server_input = QLineEdit()
-        # Default to a mock/configurable localhost or standard value
-        self.server_input.setText("http://localhost:5000") 
-        self.server_input.setPlaceholderText("http://your-admin-portal.com")
+        self.key_input.setPlaceholderText("e.g. PM-XXXX-XXXX-XXXX")
         
         form_layout.addWidget(key_lbl)
         form_layout.addWidget(self.key_input)
-        form_layout.addWidget(server_lbl)
-        form_layout.addWidget(self.server_input)
         
         # Hardware ID display (for troubleshooting/manual key registration)
         hw_layout = QHBoxLayout()
@@ -182,23 +187,23 @@ class ActivationDialog(QDialog):
         btn_layout.addWidget(self.btn_activate, 2)
         main_layout.addLayout(btn_layout)
         
+        # Finalize layout wrapping
+        scroll_area.setWidget(container)
+        dialog_layout.addWidget(scroll_area)
+        
     def on_activate_clicked(self):
         key = self.key_input.text().strip()
-        server = self.server_input.text().strip()
         
         if not key:
             QMessageBox.warning(self, "Validation Error", "Please enter your license key.")
-            return
-            
-        if not server:
-            QMessageBox.warning(self, "Validation Error", "Please specify the activation server URL.")
             return
             
         self.btn_activate.setEnabled(False)
         self.btn_activate.setText("Activating online...")
         
         # Ping Server
-        success, msg = activate_license_online(key, server)
+        from backend.license_validator import DEFAULT_SERVER_URL
+        success, msg = activate_license_online(key, DEFAULT_SERVER_URL)
         
         self.btn_activate.setEnabled(True)
         self.btn_activate.setText("Activate Software")

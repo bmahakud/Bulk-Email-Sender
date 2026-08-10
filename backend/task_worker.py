@@ -183,7 +183,9 @@ class TaskWorker(QThread):
             f"mode={mode} · delay={delay_s}s"
         )
 
-        for recipient in recipients:
+        recipients_queue = list(recipients)
+
+        while recipients_queue:
             if not self._running:
                 break
             while self._paused and self._running:
@@ -207,6 +209,7 @@ class TaskWorker(QThread):
             if current_smtp.get('status', 'ready') != 'ready':
                 self.log_message.emit(f"[Task {self.task_id}] ⚠ No ready SMTP left"); break
 
+            recipient = recipients_queue[0]
             graph = GraphAPIClient(current_smtp.get('client_id', ''))
 
             # ── Pick template / subject / sender ──
@@ -215,14 +218,12 @@ class TaskWorker(QThread):
             sndr_name = sender_names[sndr_idx % len(sender_names)] if sender_names else ''
 
             # ── Tag replacement ──
-            html_body = self.tag_proc.process(raw_html,  recipient, campaign_tags)
-            subject   = self.tag_proc.process(raw_subj,  recipient, campaign_tags)
-            to_name   = self.tag_proc.process(sndr_name, recipient, campaign_tags) if sndr_name else (recipient.get('name') or '')
+            html_body = self.tag_proc.process(raw_html,  recipient, campaign_tags, sender_name=sndr_name)
+            subject   = self.tag_proc.process(raw_subj,  recipient, campaign_tags, sender_name=sndr_name)
+            to_name   = self.tag_proc.process(sndr_name, recipient, campaign_tags, sender_name=sndr_name) if sndr_name else (recipient.get('name') or '')
             
             raw_text = cfg.get("body_plain", "")
-            text_body = self.tag_proc.process(raw_text, recipient, campaign_tags)
-
-            tpl_idx += 1; subj_idx += 1; sndr_idx += 1
+            text_body = self.tag_proc.process(raw_text, recipient, campaign_tags, sender_name=sndr_name)
 
             # ── Construct Email Body according to body_mode ──
             body_mode = cfg.get("body_mode", "html")
@@ -281,7 +282,7 @@ class TaskWorker(QThread):
              # ── Refresh Token to get Fresh Access Token ──
             from graph.auth import GraphAuth
             try:
-                auth = GraphAuth()
+                auth = GraphAuth(client_id=current_smtp['client_id'])
                 tokens = auth.refresh_access_token(current_smtp['token'])
                 if not tokens or 'access_token' not in tokens:
                     raise ValueError("Refresh token was rejected or expired.")
@@ -293,16 +294,19 @@ class TaskWorker(QThread):
                     self.db.update_smtp_token(current_smtp['email'], new_refresh)
                     current_smtp['token'] = new_refresh
             except Exception as e:
-                failed += 1
                 self.log_message.emit(f"[Task {self.task_id}]  ❌ Auth Error: Failed to refresh token for {current_smtp['email']}: {e}")
-                self.db.update_recipient_status(recipient['id'], 'failed', error_message=f"Auth Refresh Failed: {e}")
-                self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', 401, f"Auth Refresh Failed: {e}")
                 if mode == 'auto':
                     self.log_message.emit(f"[Task {self.task_id}]  ⚠ [SWITCH] {current_smtp['email']} → next")
                     self.db.update_smtp_status(current_smtp['email'], 'error')
                     current_smtp['status'] = 'error'
                     smtp_idx += 1
                     smtp_sent_cnt = 0
+                else:
+                    failed += 1
+                    self.db.update_recipient_status(recipient['id'], 'failed', error_message=f"Auth Refresh Failed: {e}")
+                    self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', 401, f"Auth Refresh Failed: {e}")
+                    recipients_queue.pop(0)
+                    tpl_idx += 1; subj_idx += 1; sndr_idx += 1
                 continue
 
             self.log_message.emit(f"[Task {self.task_id}] 📧 → {recipient['email']} via {current_smtp['email']}")
@@ -326,19 +330,32 @@ class TaskWorker(QThread):
                     self.db.update_recipient_status(recipient['id'], 'sent', current_smtp['email'])
                 self.db.increment_smtp_sent(current_smtp['email'])
                 self.db.add_send_log(recipient['email'], current_smtp['email'], 'sent')
+                
+                # Advance inputs and remove recipient from front of queue
+                recipients_queue.pop(0)
+                tpl_idx += 1; subj_idx += 1; sndr_idx += 1
             else:
-                failed += 1
                 ec  = result.get('error_code', 0)
                 em  = result.get('error_message', 'Unknown error')
-                self.log_message.emit(f"[Task {self.task_id}]  ❌ FAIL HTTP {ec}: {em}")
-                self.db.update_recipient_status(recipient['id'], 'failed', error_message=em)
-                self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', ec, em)
-                if mode == 'auto' and graph.is_auth_error(ec):
-                    self.log_message.emit(f"[Task {self.task_id}]  ⚠ [SWITCH] {current_smtp['email']} → next")
+                
+                # Is it an authentication error or rate/quota limit? (400, 401, 403, 429)
+                if mode == 'auto' and (graph.is_auth_error(ec) or ec == 429):
+                    self.log_message.emit(f"[Task {self.task_id}]  ❌ Sender Error on send via {current_smtp['email']} HTTP {ec}: {em} (Swapping sender...)")
                     self.db.update_smtp_status(current_smtp['email'], 'error')
                     current_smtp['status'] = 'error'
                     smtp_idx += 1
                     smtp_sent_cnt = 0
+                    time.sleep(0.5)
+                    continue  # Retry same recipient with rotated SMTP
+                else:
+                    failed += 1
+                    self.log_message.emit(f"[Task {self.task_id}]  ❌ FAIL HTTP {ec}: {em}")
+                    self.db.update_recipient_status(recipient['id'], 'failed', error_message=em)
+                    self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', ec, em)
+                    
+                    # Discard recipient
+                    recipients_queue.pop(0)
+                    tpl_idx += 1; subj_idx += 1; sndr_idx += 1
 
             if mode == 'limit' and smtp_sent_cnt >= limit_per_smtp:
                 self.log_message.emit(f"[Task {self.task_id}]  🔄 Limit {limit_per_smtp} reached → next SMTP")
@@ -352,7 +369,7 @@ class TaskWorker(QThread):
                 'current_smtp': current_smtp['email'],
             })
 
-            if delay_s > 0 and self._running:
+            if delay_s > 0 and self._running and recipients_queue:
                 time.sleep(delay_s)
 
         self.log_message.emit(

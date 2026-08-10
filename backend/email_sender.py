@@ -290,8 +290,8 @@ class EmailSenderWorker(QThread):
                     self.db.update_recipient_status(recipient['id'], 'failed', error_message=err_msg)
                     self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', err_code, err_msg)
 
-                    if mode == 'auto' and self.graph_client.is_auth_error(err_code):
-                        self.log_message.emit(f"  ⚠️ [SWITCH] {current_smtp['email']} bad → switching")
+                    if mode == 'auto' and (self.graph_client.is_auth_error(err_code) or err_code == 429):
+                        self.log_message.emit(f"  ⚠️ [SWITCH] {current_smtp['email']} bad/limited (HTTP {err_code}) → switching")
                         self.db.update_smtp_status(current_smtp['email'], 'error')
                         smtp_index    += 1
                         smtp_sent_cnt  = 0

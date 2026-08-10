@@ -66,8 +66,8 @@ class GraphAuth:
         "Mail.Send"
     ]
     
-    def __init__(self):
-        self.client_id = os.getenv("CLIENT_ID")
+    def __init__(self, client_id: Optional[str] = None):
+        self.client_id = client_id or os.getenv("CLIENT_ID")
         self.client_secret = os.getenv("CLIENT_SECRET")
         self.tenant_id = os.getenv("TENANT_ID", "common")
         self.redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:8000/callback")
@@ -172,10 +172,25 @@ class GraphAuth:
     def refresh_access_token(self, refresh_token: str) -> Optional[Dict]:
         """Refresh access token using refresh token"""
         try:
+            # Try initial refresh with configured application
             result = self.app.acquire_token_by_refresh_token(
                 refresh_token=refresh_token,
                 scopes=self.SCOPES
             )
+            
+            # Smart Fallback: if tenant mismatch (AADSTS50020) or scope issue (AADSTS70000) is detected
+            if "access_token" not in result:
+                err_desc = result.get('error_description', '')
+                if "AADSTS50020" in err_desc or "AADSTS70000" in err_desc:
+                    logger.info("Access denied or scope expired. Retrying with 'common' tenant and '.default' scope...")
+                    common_app = msal.PublicClientApplication(
+                        client_id=self.client_id,
+                        authority="https://login.microsoftonline.com/common"
+                    )
+                    result = common_app.acquire_token_by_refresh_token(
+                        refresh_token=refresh_token,
+                        scopes=["https://graph.microsoft.com/.default"]
+                    )
             
             if "access_token" in result:
                 logger.info("Successfully refreshed access token")
