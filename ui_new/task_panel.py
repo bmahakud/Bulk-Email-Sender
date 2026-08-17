@@ -834,6 +834,8 @@ class TaskPanel(QWidget):
         rows = self._read_csv_or_excel(path)
         added = 0
         for row in rows:
+            if len(row) == 1 and '|' in row[0]:
+                row = [r.strip() for r in row[0].split('|')]
             if len(row) >= 4:
                 self.db.add_smtp_account(row[0], row[1], row[2], row[3])
                 added += 1
