@@ -112,7 +112,8 @@ class TagProcessor:
         fmt = random.choice(self.DATE_FORMATS)
         return datetime.now().strftime(fmt)
 
-    def process(self, text: str, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "") -> str:
+    # def process(self, text: str, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "") -> str:
+    def process(self, text: str, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "", sender_email: str = "") -> str:
         """
         Replace all tags in `text`.
         :param text: Raw text / HTML with #TAG# markers.
@@ -172,7 +173,60 @@ class TagProcessor:
         else:
             tfn_val = tfn2
 
+        # regards = sender_name if sender_name else "Alex John"
+
+        # replacements = {
+        #     "#TFN1#": tfn1,
+        #     "#TFN2#": tfn2,
+        #     "#TFN#": tfn_val,
+        #     "#DATE#": date_str,
+        #     "#TIME#": time_str,
+        #     "#EMAIL#": email,
+        #     "#NAME#": name,
+        #     "#INVOICE#": invoice,
+        #     "#ORDERID#": orderid,
+        #     "#TXNID#": txnid,
+        #     "#TYPE#": pay_type,
+        #     "#AMOUNT#": amount,
+        #     "#KEY#": key,
+        #     "#GUID#": guid,
+        #     "#NUMBER#": number,
+        #     "#RANDOM#": random_mix,
+        #     "#SERIAL#": serial,
+        #     "#SNUMBER#": snumber,
+        #     "#ORDER#": order,
+        #     "#LETTERS#": letters,
+        #     "#LICENSE#": license_key,
+        #     "#REGARDS#": regards,
+        #     "#ADDRESS#": address,
+            
+            
+        #     }
+
+
         regards = sender_name if sender_name else "Alex John"
+
+        # Unsubscribe link (points to promailer cloud server if license key available, else mailto fallback)
+        custom_unsub = campaign_tags.get("custom_unsubscribe_url", "").strip()
+        lic_key = campaign_tags.get("license_key", "").strip()
+        if not lic_key:
+            try:
+                from backend.database import Database
+                from backend.license_validator import verify_token
+                _db = Database()
+                tok = _db.get_setting("license_token", default="")
+                if tok:
+                    lic_key = verify_token(tok).get("license_key", "")
+            except Exception:
+                pass
+
+        if custom_unsub:
+            unsub_link = custom_unsub
+        elif lic_key and email:
+            unsub_link = f"https://promailer-licensing.diracai.com/unsubscribe?lic={lic_key}&email={email}"
+        else:
+            target_sender = sender_email if sender_email else "optout@domain.com"
+            unsub_link = f"mailto:{target_sender}?subject=Unsubscribe%20Request&body=Please%20unsubscribe%20my%20email:%20{email}"
 
         replacements = {
             "#TFN1#": tfn1,
@@ -198,7 +252,12 @@ class TagProcessor:
             "#LICENSE#": license_key,
             "#REGARDS#": regards,
             "#ADDRESS#": address,
+            "#SENDER_EMAIL#": sender_email,
+            "#UNSUBSCRIBE#": unsub_link,
         }
+
+
+
 
         for tag, val in replacements.items():
             text = text.replace(tag, str(val))

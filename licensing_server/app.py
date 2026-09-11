@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
-DB_PATH = "licensing_server.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "licensing_server.db")
 LICENSE_HMAC_SECRET = b"ProMailerSecureActivationSecretKey2026!#"
 
 def init_db():
@@ -27,8 +28,23 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS unsubscribed_contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            license_key TEXT NOT NULL,
+            email TEXT NOT NULL,
+            unsubscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(license_key, email)
+        )
+    """)
     conn.commit()
     conn.close()
+
+# Auto-initialize database tables on module load (required for Gunicorn/WSGI)
+try:
+    init_db()
+except Exception as e:
+    print(f"Warning: init_db failed: {e}")
 
 def sign_license_payload(payload: dict) -> str:
     # Sort keys to ensure deterministic JSON representation
@@ -328,6 +344,129 @@ def api_activate():
         "license_token": token,
         "expiry": expires_at
     })
+
+# ── Unsubscribe Webhook (Fired automatically by Gmail One-Click or user click) ──
+@app.route('/unsubscribe', methods=['GET', 'POST'])
+def handle_unsubscribe():
+    email = request.args.get('email') or request.form.get('email')
+    lic_key = request.args.get('lic') or request.form.get('lic') or 'GLOBAL'
+    
+    if email:
+        clean_email = email.strip().lower()
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO unsubscribed_contacts (license_key, email) VALUES (?, ?)",
+            (lic_key.strip(), clean_email)
+        )
+        conn.commit()
+        conn.close()
+
+    if request.method == 'POST':
+        return jsonify({"status": "success", "message": "Unsubscribed"}), 200
+
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Unsubscribed</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { background: #12131a; color: #e8eaf0; font-family: 'Segoe UI', system-ui, sans-serif; text-align: center; padding: 80px 20px; }
+            .card { background: #1a1b27; border: 1px solid #252637; border-radius: 10px; max-width: 480px; margin: 0 auto; padding: 40px 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+            h2 { color: #43b581; margin-top: 0; font-size: 22px; }
+            p { color: #a0a4b8; font-size: 14px; line-height: 1.6; }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h2>Successfully Unsubscribed</h2>
+            <p>Your email address has been removed from this mailing list. You will not receive any further emails from this sender.</p>
+        </div>
+    </body>
+    </html>
+    """, 200
+
+# ── API for Desktop App to Auto-Sync Unsubscribed List ──
+@app.route('/api/unsubscribed', methods=['GET'])
+def api_get_unsubscribed():
+    try:
+        init_db()
+        lic_key = request.args.get('lic', '').strip()
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        if lic_key:
+            cursor.execute(
+                "SELECT email, datetime(unsubscribed_at, 'localtime') as unsubscribed_at FROM unsubscribed_contacts WHERE license_key = ? OR license_key = 'GLOBAL' ORDER BY unsubscribed_at DESC",
+                (lic_key,)
+            )
+        else:
+            cursor.execute(
+                "SELECT email, datetime(unsubscribed_at, 'localtime') as unsubscribed_at FROM unsubscribed_contacts ORDER BY unsubscribed_at DESC"
+            )
+            
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return jsonify({
+            "status": "success",
+            "count": len(rows),
+            "emails": [dict(r) for r in rows]
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/unsubscribed/delete', methods=['POST'])
+def api_delete_unsubscribed():
+    try:
+        init_db()
+        data = request.json or request.form or {}
+        lic_key = data.get('lic', '').strip()
+        email = data.get('email', '').strip().lower()
+        if email:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            if lic_key:
+                cursor.execute(
+                    "DELETE FROM unsubscribed_contacts WHERE LOWER(email) = ? AND (license_key = ? OR license_key = 'GLOBAL')",
+                    (email, lic_key)
+                )
+            else:
+                cursor.execute(
+                    "DELETE FROM unsubscribed_contacts WHERE LOWER(email) = ?",
+                    (email,)
+                )
+            conn.commit()
+            conn.close()
+        return jsonify({"status": "success", "message": f"Removed {email}"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/unsubscribed/clear', methods=['POST'])
+def api_clear_unsubscribed():
+    try:
+        init_db()
+        data = request.json or request.form or {}
+        lic_key = data.get('lic', '').strip()
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        if lic_key:
+            cursor.execute(
+                "DELETE FROM unsubscribed_contacts WHERE license_key = ? OR license_key = 'GLOBAL'",
+                (lic_key,)
+            )
+        else:
+            cursor.execute("DELETE FROM unsubscribed_contacts")
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success", "message": "Cleared unsubscribed contacts"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 # ADMIN DASHBOARD ROUTES
 @app.route('/admin')

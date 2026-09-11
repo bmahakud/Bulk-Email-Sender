@@ -46,7 +46,7 @@ def main():
 
     from ui_new.main_window import MainWindow
     w = MainWindow()
-    w.show()
+    w.showMaximized()
     sys.exit(app.exec())
 
 if __name__ == "__main__":

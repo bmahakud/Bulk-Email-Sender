@@ -228,6 +228,20 @@ class EmailSenderWorker(QThread):
                         final_body = f'<img src="data:image/png;base64,{b64}" alt="Email Content" style="max-width:100%;">'
                     # else keep html_body
 
+                # elif body_mode == 'body_pdf':
+                #     final_body = text_as_html if text_as_html else html_body
+                #     pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(html_body)
+                #     if pdf_b64:
+                #         gen_atts.append({
+                #             "@odata.type": "#microsoft.graph.fileAttachment",
+                #             "name":         f"{prefix}{rand_n}.pdf",
+                #             "contentType":  "application/pdf",
+                #             "contentBytes": pdf_b64
+                #         })
+
+
+
+
                 elif body_mode == 'body_pdf':
                     final_body = text_as_html if text_as_html else html_body
                     pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(html_body)
@@ -238,6 +252,16 @@ class EmailSenderWorker(QThread):
                             "contentType":  "application/pdf",
                             "contentBytes": pdf_b64
                         })
+
+                elif body_mode == 'body_img_pdf':
+                    final_body = text_as_html if text_as_html else html_body
+
+
+
+
+
+
+
 
                 elif body_mode == 'body_img':
                     final_body = text_as_html if text_as_html else html_body
@@ -252,14 +276,68 @@ class EmailSenderWorker(QThread):
                         })
 
                 # ── File attachments ──
+                # attachments = []
+                # for img in image_paths:
+                #     att = self._build_attachment(img, recipient['email'], target_type="image")
+                #     if att: attachments.append(att)
+                # for pdf in pdf_paths:
+                #     att = self._build_attachment(pdf, recipient['email'], target_type="pdf")
+                #     if att: attachments.append(att)
+                # attachments.extend(gen_atts)
+
+
+
+
+
+                                # ── File attachments ──
                 attachments = []
-                for img in image_paths:
-                    att = self._build_attachment(img, recipient['email'], target_type="image")
-                    if att: attachments.append(att)
+
+                if body_mode == 'body_img_pdf':
+                    # Images go INLINE in the body (not listed as attachments)
+                    inline_images = []
+                    for idx, img in enumerate(image_paths):
+                        try:
+                            p = Path(img)
+                            if not p.exists():
+                                continue
+                            ext = p.suffix.lower()
+                            mime_map = {'.png': 'image/png', '.jpg': 'image/jpeg',
+                                        '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+                                        '.webp': 'image/webp'}
+                            mime = mime_map.get(ext)
+                            if not mime:
+                                continue
+                            content_id = f"inline_img_{idx}_{random.randint(1000, 9999)}"
+                            img_b64 = base64.b64encode(p.read_bytes()).decode('utf-8')
+                            inline_images.append(
+                                f'<p><img src="cid:{content_id}" alt="Image" style="max-width:100%;"></p>'
+                            )
+                            attachments.append({
+                                "@odata.type": "#microsoft.graph.fileAttachment",
+                                "name":         p.name,
+                                "contentType":  mime,
+                                "contentBytes": img_b64,
+                                "isInline":     True,
+                                "contentId":    content_id,
+                            })
+                        except Exception as e:
+                            self.log_message.emit(f"⚠️ Could not embed image {img}: {e}")
+                    if inline_images:
+                        final_body += "\n" + "\n".join(inline_images)
+                else:
+                    # Existing behavior — unchanged for every other mode
+                    for img in image_paths:
+                        att = self._build_attachment(img, recipient['email'], target_type="image")
+                        if att: attachments.append(att)
+
                 for pdf in pdf_paths:
                     att = self._build_attachment(pdf, recipient['email'], target_type="pdf")
                     if att: attachments.append(att)
                 attachments.extend(gen_atts)
+
+
+
+
 
                 self.log_message.emit(f"📧 Sending to {recipient['email']} via {current_smtp['email']}")
 
