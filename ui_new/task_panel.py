@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QDoubleSpinBox, QListWidget, QGridLayout,
     QListWidgetItem, QTabWidget, QFrame, QFormLayout,
     QScrollArea, QMessageBox, QDialog, QDialogButtonBox,
-    QSizePolicy
+    QSizePolicy, QComboBox
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
@@ -454,6 +454,21 @@ class TaskPanel(QWidget):
         self.rb_text_inline = QRadioButton("Text+Inline")
         self.rb_text_only = QRadioButton("Text Only")
         self.rb_html_only = QRadioButton("HTML Only")
+
+
+        # self.rb_body_img = QRadioButton("HTML Body + Image")
+        # self.rb_body_pdf = QRadioButton("HTML Body + PDF")
+        # self.rb_body_img_pdf = QRadioButton("HTML Body + Image + PDF")
+
+        # self.rb_inline_attach = QRadioButton("Inline+Attach")
+        # self.rb_inline_pdf = QRadioButton("Inline+PDF")
+        # self.rb_text_inline = QRadioButton("Text+Inline")
+        # self.rb_text_only = QRadioButton("Text Only")
+        # self.rb_html_only = QRadioButton("HTML Only")
+
+
+
+
         
         self.rb_html_only.setChecked(True)
         
@@ -518,6 +533,19 @@ class TaskPanel(QWidget):
         self.txt_senders.setFixedHeight(80)
         snl.addWidget(self.txt_senders)
         g_snd.setLayout(snl); lay.addWidget(g_snd)
+
+        # Body Content Type selection (HTML Template vs Plain Text)
+        self.g_body_type = QGroupBox("Body Content Format")
+        bt_lay = QHBoxLayout(self.g_body_type)
+        self.rb_content_html = QRadioButton("HTML Template (default)")
+        self.rb_content_text = QRadioButton("Plain Text")
+        self.rb_content_html.setChecked(True)
+        bt_lay.addWidget(self.rb_content_html)
+        bt_lay.addWidget(self.rb_content_text)
+        bt_lay.addStretch()
+        lay.addWidget(self.g_body_type)
+        self.rb_content_html.toggled.connect(self._update_content_visibility)
+        self.rb_content_text.toggled.connect(self._update_content_visibility)
 
         # Body plain text
         self.g_txt = QGroupBox("Body Text  (plain text / fallback if no HTML)")
@@ -587,6 +615,19 @@ class TaskPanel(QWidget):
         self.wdg_img_att.setStyleSheet("background:transparent;")
         img_lay = QVBoxLayout(self.wdg_img_att)
         img_lay.setContentsMargins(0, 0, 0, 0)
+
+        fmt_row = QHBoxLayout()
+        fmt_lbl = QLabel("Image Format:")
+        fmt_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
+        self.cmb_img_format = QComboBox()
+        self.cmb_img_format.addItems(["JPG", "JPEG", "PNG", "WEBP", "GIF", "BMP", "TIFF"])
+        self.cmb_img_format.setCurrentText("JPEG")
+        self.cmb_img_format.setFixedWidth(120)
+        fmt_row.addWidget(fmt_lbl)
+        fmt_row.addWidget(self.cmb_img_format)
+        fmt_row.addStretch()
+        img_lay.addLayout(fmt_row)
+
         ir = QHBoxLayout()
         b_add_i = QPushButton("+ Image Attachments  (GIF/PNG/JPG/WEBP → base64)")
         b_add_i.setStyleSheet(BTN("#43b581", "#369e6b"))
@@ -702,12 +743,6 @@ class TaskPanel(QWidget):
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
 
-        hdr = QLabel(f"▼ Task {self.task_id} Log")
-        hdr.setStyleSheet(
-            "color:#7880a0; font-size:11px; font-weight:700; "
-            "padding:4px; background:#0d0e17; border-radius:3px;")
-        lay.addWidget(hdr)
-
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
         self.log_box.setFont(QFont("Courier New", 10))
@@ -717,6 +752,19 @@ class TaskPanel(QWidget):
                 border:1px solid #252637; border-radius:5px; padding:6px;
             }
         """)
+
+        hdr_row = QHBoxLayout()
+        hdr = QLabel(f"▼ Task {self.task_id} Log")
+        hdr.setStyleSheet(
+            "color:#7880a0; font-size:11px; font-weight:700; "
+            "padding:4px; background:#0d0e17; border-radius:3px;")
+        b_clr_top = QPushButton("🗑 Clear Log")
+        b_clr_top.setStyleSheet(BTN("#252637", "#3d3f52"))
+        b_clr_top.setFixedHeight(24)
+        b_clr_top.clicked.connect(self.log_box.clear)
+        hdr_row.addWidget(hdr, 1)
+        hdr_row.addWidget(b_clr_top)
+        lay.addLayout(hdr_row)
         lay.addWidget(self.log_box, 1)
 
         foot_row = QHBoxLayout()
@@ -735,9 +783,13 @@ class TaskPanel(QWidget):
         lines = [l.strip() for l in self.txt_recipients.toPlainText().split('\n') if l.strip()]
         valid = [l for l in lines if '@' in l]
         self.lbl_rec_count.setText(f"{len(valid)} recipients loaded")
+        pfx = f"task_{self.task_id}_"
+        self.db.set_setting(pfx + "recipients", self.txt_recipients.toPlainText())
 
     def _clear_recipients(self):
         self.txt_recipients.clear()
+        pfx = f"task_{self.task_id}_"
+        self.db.set_setting(pfx + "recipients", "")
 
     def _validate_recipients(self):
         lines = [l.strip() for l in self.txt_recipients.toPlainText().split('\n') if l.strip()]
@@ -924,16 +976,89 @@ class TaskPanel(QWidget):
             self.html_list.addItem(f)
 
     def _add_img_att(self):
+        fmt_filter_map = {
+            "JPG":  "JPG Images (*.jpg)",
+            "JPEG": "JPEG Images (*.jpeg)",
+            "PNG":  "PNG Images (*.png)",
+            "WEBP": "WEBP Images (*.webp)",
+            "GIF":  "GIF Images (*.gif)",
+            "BMP":  "BMP Images (*.bmp)",
+            "TIFF": "TIFF Images (*.tiff *.tif)",
+        }
+        selected_fmt = self.cmb_img_format.currentText()
+        filter_str = fmt_filter_map.get(selected_fmt, "Images (*.gif *.png *.jpg *.jpeg *.webp *.bmp *.tiff)")
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select Images/HTML", "", "Images/HTML (*.gif *.png *.jpg *.jpeg *.webp *.html *.htm)")
+            self, f"Select {selected_fmt} Images", "", filter_str)
+        max_bytes = 100 * 1024
+        rejected = []
         for f in files:
-            self.img_att_list.addItem(f)
+            try:
+                size = Path(f).stat().st_size
+            except Exception:
+                size = 0
+            if size > max_bytes:
+                rejected.append(f"{Path(f).name} ({size // 1024} KB)")
+            else:
+                self.img_att_list.addItem(f)
+        if rejected:
+            QMessageBox.warning(
+                self, "Image(s) too large",
+                "These images are over 100KB and were NOT added:\n\n" + "\n".join(rejected) +
+                "\n\nPlease compress or resize them before uploading."
+            )
+
+    # def _add_pdf_att(self):
+    #     files, _ = QFileDialog.getOpenFileNames(
+    #         self, "Select PDFs/HTML", "", "PDF/HTML (*.pdf *.html *.htm)")
+    #     for f in files:
+    #         self.pdf_att_list.addItem(f)
+
+
 
     def _add_pdf_att(self):
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select PDFs/HTML", "", "PDF/HTML (*.pdf *.html *.htm)")
+            self, "Select PDFs/HTML", "", "PDF/HTML (*.pdf *.html *.htm)"
+        )
+
+        max_bytes = 100 * 1024
+        rejected = []
+
         for f in files:
+            # Apply 100 KB restriction only to PDF files.
+            # HTML/HTM files continue to work as before.
+            if Path(f).suffix.lower() == ".pdf":
+                try:
+                    size = Path(f).stat().st_size
+                except Exception:
+                    size = 0
+
+                if size > max_bytes:
+                    rejected.append(
+                        f"{Path(f).name} ({size // 1024} KB)"
+                    )
+                    continue
+
             self.pdf_att_list.addItem(f)
+
+        if rejected:
+            QMessageBox.warning(
+                self,
+                "PDF(s) too large",
+                "These PDFs are over 100KB and were NOT added:\n\n"
+                + "\n".join(rejected)
+                + "\n\nPlease compress or reduce them before uploading."
+            )
+
+
+
+
+
+
+
+
+
+
+
 
     # ── Campaign config builder ───────────────────────────────────────────────
     def _build_campaign_tags(self):
@@ -1013,6 +1138,7 @@ class TaskPanel(QWidget):
         s(pfx + "amt_min", str(self.spn_amt_min.value()))
         s(pfx + "amt_max", str(self.spn_amt_max.value()))
         s(pfx + "addresses", self.txt_addresses.toPlainText())
+        s(pfx + "recipients", self.txt_recipients.toPlainText())
 
         # Content
         s(pfx + "subjects", self.txt_subjects.toPlainText())
@@ -1020,21 +1146,27 @@ class TaskPanel(QWidget):
         s(pfx + "default_sender", "1" if self.chk_default_sender.isChecked() else "0")
         s(pfx + "body_plain", self.txt_body_plain.toPlainText())
         s(pfx + "inline_b64", "1" if self.chk_inline_b64.isChecked() else "0")
+        s(pfx + "img_format", self.cmb_img_format.currentText())
 
         # Body mode
         if self.rb_text_only.isChecked():
             bm = "text"
-        elif self.rb_inline_attach.isChecked() or self.rb_inline_pdf.isChecked():
-            bm = "html_image"
+        elif self.rb_inline_attach.isChecked():
+            bm = "inline_img"
+        elif self.rb_inline_pdf.isChecked():
+            bm = "inline_pdf"
         elif self.rb_text_inline.isChecked():
-            bm = "body_img"
-        elif self.rb_body_pdf.isChecked() or self.rb_body_img_pdf.isChecked():
+            bm = "text_inline"
+        elif self.rb_body_pdf.isChecked():
             bm = "body_pdf"
+        elif self.rb_body_img_pdf.isChecked():
+            bm = "body_img_pdf"
         elif self.rb_body_img.isChecked():
             bm = "body_img"
         else:
             bm = "html"
         s(pfx + "body_mode", bm)
+        s(pfx + "body_content_type", "text" if self.rb_content_text.isChecked() else "html")
 
         # HTML file paths
         html_paths = [self.html_list.item(i).text() for i in range(self.html_list.count())]
@@ -1076,12 +1208,37 @@ class TaskPanel(QWidget):
         if v: self.spn_amt_max.setValue(float(v))
         v = g(pfx + "addresses"); self.txt_addresses.setPlainText(v) if v else None
 
+        # Recipients
+        v = g(pfx + "recipients")
+        if v and v.strip():
+            self.txt_recipients.blockSignals(True)
+            self.txt_recipients.setPlainText(v)
+            self.txt_recipients.blockSignals(False)
+            self._on_recipients_changed()
+        else:
+            all_recs = self.db.get_recipients()
+            if all_recs:
+                lines = []
+                for r in all_recs:
+                    em = r.get('email', '').strip()
+                    nm = r.get('name', '').strip()
+                    if em:
+                        lines.append(f"{em},{nm}" if nm else em)
+                if lines:
+                    combined = "\n".join(lines)
+                    self.txt_recipients.blockSignals(True)
+                    self.txt_recipients.setPlainText(combined)
+                    self.txt_recipients.blockSignals(False)
+                    self._on_recipients_changed()
+
         # Content
         v = g(pfx + "subjects");   self.txt_subjects.setPlainText(v) if v else None
         v = g(pfx + "senders");    self.txt_senders.setPlainText(v) if v else None
         v = g(pfx + "default_sender"); self.chk_default_sender.setChecked(v != "0") if v else None
         v = g(pfx + "body_plain"); self.txt_body_plain.setPlainText(v) if v else None
         v = g(pfx + "inline_b64"); self.chk_inline_b64.setChecked(v != "0") if v else None
+        v = g(pfx + "img_format")
+        if v: self.cmb_img_format.setCurrentText(v)
 
         # Body mode
         v = g(pfx + "body_mode")
@@ -1093,12 +1250,18 @@ class TaskPanel(QWidget):
             
         if v == "text":
             self.rb_text_only.setChecked(True)
-        elif v == "html_image":
+        elif v in ("inline_img", "inline_attach", "html_image"):
             self.rb_inline_attach.setChecked(True)
+        elif v == "inline_pdf":
+            self.rb_inline_pdf.setChecked(True)
+        elif v == "text_inline":
+            self.rb_text_inline.setChecked(True)
         elif v == "body_pdf":
             self.rb_body_pdf.setChecked(True)
+        elif v == "body_img_pdf":
+            self.rb_body_img_pdf.setChecked(True)
         elif v == "body_img":
-            self.rb_text_inline.setChecked(True)
+            self.rb_body_img.setChecked(True)
         elif v == "html":
             self.rb_html_only.setChecked(True)
         else:
@@ -1109,6 +1272,16 @@ class TaskPanel(QWidget):
                    self.rb_text_only, self.rb_html_only):
             rb.blockSignals(False)
             
+        bct = g(pfx + "body_content_type", "html")
+        self.rb_content_html.blockSignals(True)
+        self.rb_content_text.blockSignals(True)
+        if bct == "text":
+            self.rb_content_text.setChecked(True)
+        else:
+            self.rb_content_html.setChecked(True)
+        self.rb_content_html.blockSignals(False)
+        self.rb_content_text.blockSignals(False)
+
         self._update_content_visibility()
 
         # HTML file paths
@@ -1175,29 +1348,59 @@ class TaskPanel(QWidget):
         body_mode = "html"
         if self.rb_text_only.isChecked():
             body_mode = "text"
-        elif self.rb_inline_attach.isChecked() or self.rb_inline_pdf.isChecked():
-            body_mode = "html_image"
+        elif self.rb_inline_attach.isChecked():
+            body_mode = "inline_img"
+        elif self.rb_inline_pdf.isChecked():
+            body_mode = "inline_pdf"
         elif self.rb_text_inline.isChecked():
-            body_mode = "body_img"
-        elif self.rb_body_pdf.isChecked() or self.rb_body_img_pdf.isChecked():
+            body_mode = "text_inline"
+        elif self.rb_body_pdf.isChecked():
             body_mode = "body_pdf"
+        elif self.rb_body_img_pdf.isChecked():
+            body_mode = "body_img_pdf"
         elif self.rb_body_img.isChecked():
             body_mode = "body_img"
 
+        # Determine body content format (html vs text)
+        body_content_type = "text" if self.rb_content_text.isChecked() else "html"
+        if self.rb_text_only.isChecked() or self.rb_text_inline.isChecked():
+            body_content_type = "text"
+        elif self.rb_html_only.isChecked():
+            body_content_type = "html"
+
+        # Isolate mode data: only include attachments/templates relevant to the selected body_mode
+        img_paths = []
+        if body_mode in ("body_img", "body_img_pdf", "text_inline"):
+            img_paths = [self.img_att_list.item(i).text() for i in range(self.img_att_list.count())]
+
+        pdf_paths = []
+        if body_mode in ("body_pdf", "body_img_pdf", "inline_pdf"):
+            pdf_paths = [self.pdf_att_list.item(i).text() for i in range(self.pdf_att_list.count())]
+
+        templates = []
+        if body_content_type == "html" and body_mode not in ("text", "text_inline"):
+            templates = self._get_html_templates()
+
+        body_plain = ""
+        if body_content_type == "text" or body_mode in ("text", "text_inline"):
+            body_plain = self.txt_body_plain.toPlainText()
+
         config = {
-            "templates":      self._get_html_templates(),
-            "subjects":       subjects,
-            "sender_names":   senders,
-            "campaign_tags":  self._build_campaign_tags(),
-            "addresses":      addresses,
-            "image_paths":    [self.img_att_list.item(i).text() for i in range(self.img_att_list.count())],
-            "pdf_paths":      [self.pdf_att_list.item(i).text() for i in range(self.pdf_att_list.count())],
-            "delay":          self.spn_delay.value(),
-            "smtp_mode":      "auto" if self.rb_auto.isChecked() else "limit",
-            "limit_per_smtp": self.spn_limit.value(),
-            "auto_remove":    self.chk_auto_remove.isChecked(),
-            "body_mode":      body_mode,
-            "body_plain":     self.txt_body_plain.toPlainText(),
+            "templates":          templates,
+            "subjects":           subjects,
+            "sender_names":       senders,
+            "campaign_tags":      self._build_campaign_tags(),
+            "addresses":          addresses,
+            "image_paths":        img_paths,
+            "pdf_paths":          pdf_paths,
+            "delay":              self.spn_delay.value(),
+            "smtp_mode":          "auto" if self.rb_auto.isChecked() else "limit",
+            "limit_per_smtp":     self.spn_limit.value(),
+            "auto_remove":        self.chk_auto_remove.isChecked(),
+            "body_mode":          body_mode,
+            "body_content_type":  body_content_type,
+            "body_plain":         body_plain,
+            "img_format":         self.cmb_img_format.currentText(),
         }
 
         self.worker = TaskWorker(self.task_id, config, self.db)
@@ -1262,31 +1465,46 @@ class TaskPanel(QWidget):
         show_txt = False
         show_img_att = False
         show_pdf_att = False
+        show_body_type = False
         
-        if self.rb_body_img.isChecked():
-            show_html = True
-            show_img_att = True
-        elif self.rb_body_pdf.isChecked():
-            show_html = True
-            show_pdf_att = True
-        elif self.rb_body_img_pdf.isChecked():
-            show_html = True
-            show_img_att = True
-            show_pdf_att = True
-        elif self.rb_inline_attach.isChecked():
-            show_html = True
-            show_img_att = True
-        elif self.rb_inline_pdf.isChecked():
-            show_html = True
-            show_pdf_att = True
+        # Check if the current mode supports choosing between HTML and Plain Text
+        supports_body_type = (
+            self.rb_body_img.isChecked() or
+            self.rb_body_pdf.isChecked() or
+            self.rb_body_img_pdf.isChecked() or
+            self.rb_inline_attach.isChecked() or
+            self.rb_inline_pdf.isChecked()
+        )
+        
+        if supports_body_type:
+            show_body_type = True
+            is_html = self.rb_content_html.isChecked()
+            show_html = is_html
+            show_txt = not is_html
+            
+            if self.rb_body_img.isChecked():
+                show_img_att = True
+            elif self.rb_body_pdf.isChecked():
+                show_pdf_att = True
+            elif self.rb_body_img_pdf.isChecked():
+                show_img_att = True
+                show_pdf_att = True
+            elif self.rb_inline_attach.isChecked():
+                show_img_att = False
+                show_pdf_att = False
+            elif self.rb_inline_pdf.isChecked():
+                show_img_att = False
+                show_pdf_att = True
+
         elif self.rb_text_inline.isChecked():
             show_txt = True
-            show_html = True
+            show_img_att = True
         elif self.rb_html_only.isChecked():
             show_html = True
         elif self.rb_text_only.isChecked():
             show_txt = True
             
+        self.g_body_type.setVisible(show_body_type)
         self.g_html.setVisible(show_html)
         self.g_txt.setVisible(show_txt)
         self.wdg_img_att.setVisible(show_img_att)

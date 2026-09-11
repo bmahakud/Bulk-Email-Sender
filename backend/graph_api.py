@@ -14,8 +14,22 @@ class GraphAPIClient:
         self.tenant_id = tenant_id
         self.base_url = "https://graph.microsoft.com/v1.0"
     
+    # def send_email(self, access_token: str, to_email: str, to_name: str, 
+    #                subject: str, body_html: str, attachments: Optional[list] = None) -> Dict:
+
+
+
+
     def send_email(self, access_token: str, to_email: str, to_name: str, 
-                   subject: str, body_html: str, attachments: Optional[list] = None) -> Dict:
+                   subject: str, body_html: str, attachments: Optional[list] = None,
+                   unsubscribe_email: Optional[str] = None,
+                   license_key: Optional[str] = None) -> Dict:
+
+
+
+
+
+
         """
         Send email via Microsoft Graph API
         
@@ -47,16 +61,52 @@ class GraphAPIClient:
         }
 
         # Add attachments if provided
+        # if attachments:
+        #     email_data["message"]["attachments"] = attachments
+        
+        # try:
+
+
+                # Add attachments if provided
         if attachments:
             email_data["message"]["attachments"] = attachments
+
+        # Stamp List-Unsubscribe header
+        unsub_parts = []
+        if license_key and to_email:
+            unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={license_key}&email={to_email}>")
+        elif unsubscribe_email:
+            unsub_parts.append(f"<mailto:{unsubscribe_email}?subject=Unsubscribe%20Request>")
+
+        if unsub_parts:
+            email_data["message"]["singleValueExtendedProperties"] = [
+                {
+                    "id": "String 0x1045",
+                    "value": ", ".join(unsub_parts)
+                }
+            ]
         
         try:
+
+
+
+
             response = requests.post(
                 f"{self.base_url}/me/sendMail",
                 headers=headers,
                 json=email_data,
                 timeout=30
             )
+
+            # Resilient fallback: if Graph rejects extended properties, retry immediately without it
+            if response.status_code != 202 and "singleValueExtendedProperties" in email_data.get("message", {}):
+                email_data["message"].pop("singleValueExtendedProperties", None)
+                response = requests.post(
+                    f"{self.base_url}/me/sendMail",
+                    headers=headers,
+                    json=email_data,
+                    timeout=30
+                )
             
             if response.status_code == 202:
                 return {'success': True}

@@ -68,6 +68,18 @@ class Database:
             )
         """)
 
+                # Unsubscribed recipients table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS unsubscribed_recipients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                unsubscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+
+        
+
         # Settings table (for persistent configs)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
@@ -227,6 +239,10 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return [dict(row) for row in rows]
+
+    def get_all_recipients(self) -> List[Dict]:
+        """Alias for get_recipients()"""
+        return self.get_recipients()
     
     def update_recipient_status(self, recipient_id: int, status: str, smtp_email: str = None, error_message: str = None):
         """Update recipient status"""
@@ -424,4 +440,45 @@ class Database:
         cursor.execute("DELETE FROM sender_names")
         conn.commit()
         conn.close()
+
+
+        # ── Unsubscribed Recipients Helpers ─────────────────────────────────────────
+    def add_unsubscribed(self, email: str) -> bool:
+        """Add an email to the unsubscribed suppression list."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT OR IGNORE INTO unsubscribed_recipients (email) VALUES (?)",
+                (email.strip().lower(),)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception:
+            return False
+        finally:
+            conn.close()
+
+    def is_unsubscribed(self, email: str) -> bool:
+        """Check if an email is unsubscribed."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM unsubscribed_recipients WHERE LOWER(email) = ?",
+            (email.strip().lower(),)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
+
+    def get_unsubscribed_list(self) -> List[Dict]:
+        """Get all unsubscribed contacts."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT email, datetime(unsubscribed_at, 'localtime') as unsubscribed_at FROM unsubscribed_recipients ORDER BY unsubscribed_at DESC"
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
 

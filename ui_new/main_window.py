@@ -11,8 +11,8 @@ import os
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTabWidget, QPushButton, QLabel, QStatusBar,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QTabWidget, QTabBar, QPushButton, QLabel, QStatusBar,
     QMessageBox, QDialog, QScrollArea, QFrame,
     QSizePolicy
 )
@@ -177,8 +177,25 @@ class MainWindow(QMainWindow):
         self.task_panels: list[TaskPanel] = []
 
         self.setWindowTitle("✉ ProMailer Pro | Bulk Email Sender – Campaign Command Center")
-        self.setMinimumSize(1380, 880)
+        self.setMinimumSize(960, 520)
         self.setStyleSheet(DARK_STYLE)
+
+        try:
+            from PySide6.QtWidgets import QApplication
+            screen = QApplication.primaryScreen()
+            if screen:
+                avail = screen.availableGeometry()
+                target_w = min(1420, max(960, avail.width() - 30))
+                target_h = min(840, max(520, avail.height() - 50))
+                self.resize(target_w, target_h)
+                self.move(
+                    avail.x() + max(0, (avail.width() - target_w) // 2),
+                    avail.y() + max(0, (avail.height() - target_h) // 2)
+                )
+            else:
+                self.resize(1200, 680)
+        except Exception:
+            self.resize(1200, 680)
 
         self._build_menu()
         self._build_ui()
@@ -204,6 +221,10 @@ class MainWindow(QMainWindow):
         act_clear_smtp.triggered.connect(self._clear_smtp_and_data)
         file_menu.addAction(act_clear_smtp)
         
+        act_unsub = QAction("Unsubscribed List", self)
+        act_unsub.triggered.connect(self._show_unsubscribed_dialog)
+        file_menu.addAction(act_unsub)
+
         file_menu.addSeparator()
         act_exit = QAction("Exit", self)
         act_exit.triggered.connect(self.close)
@@ -335,6 +356,7 @@ class MainWindow(QMainWindow):
         lay.addSpacing(16)
         lay.addWidget(tb_btn("➕ New Task",   "#5865f2", self._add_task_dynamic))
         lay.addWidget(tb_btn("🏷 Tags",       "#7289da", self._show_tags_dialog))
+        lay.addWidget(tb_btn("Unsubscribed",  "#6c5ce7", self._show_unsubscribed_dialog))
         lay.addWidget(tb_btn("🗑 Clear Data",  "#3d3f52", self._clear_smtp_and_data))
         lay.addStretch()
 
@@ -367,15 +389,23 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index):
         """Monitor if the user clicked the last '+' tab."""
-        if index == self.task_tabs.count() - 1:
+        if index == self.task_tabs.count() - 1 and self.task_tabs.widget(index) is self.add_task_trigger:
             self._add_task_dynamic()
 
     def _on_tab_close_requested(self, index):
         """Handles close event on dynamic tabs."""
-        # Do not close permanent tabs (Dashboard/Add Task)
-        if index == 0 or index == self.task_tabs.count() - 1:
+        # Do not close permanent tabs (Dashboard / Add Task)
+        if index == 0 or index >= self.task_tabs.count() - 1:
             return
-            
+
+        # Keep at least one task panel open
+        if len(self.task_panels) <= 1:
+            QMessageBox.information(
+                self, "Notice",
+                "At least one campaign task must remain active."
+            )
+            return
+
         widget = self.task_tabs.widget(index)
         if isinstance(widget, TaskPanel):
             reply = QMessageBox.question(
@@ -384,11 +414,27 @@ class MainWindow(QMainWindow):
                 "All un-saved inputs for this task will be discarded.",
                 QMessageBox.Yes | QMessageBox.No
             )
-            if reply == QMessageBox.Yes:
+            # Accept both enum and integer representation of Yes
+            is_yes = (reply == QMessageBox.Yes or 
+                      reply == QMessageBox.StandardButton.Yes or 
+                      int(reply) == 16384)
+            if is_yes:
                 if widget.worker and widget.worker.isRunning():
                     widget.stop_task()
-                self.task_panels.remove(widget)
-                self.task_tabs.removeTab(index)
+                if widget in self.task_panels:
+                    self.task_panels.remove(widget)
+
+                # Block signals so tab removal does not trigger "+ Add Task"
+                self.task_tabs.blockSignals(True)
+                actual_idx = self.task_tabs.indexOf(widget)
+                if actual_idx >= 0:
+                    self.task_tabs.removeTab(actual_idx)
+                
+                # Focus back to previous valid task tab
+                target_idx = max(1, min(actual_idx, self.task_tabs.count() - 2))
+                self.task_tabs.setCurrentIndex(target_idx)
+                self.task_tabs.blockSignals(False)
+
                 widget.deleteLater()
                 self._refresh_global_stats()
 
@@ -430,6 +476,12 @@ class MainWindow(QMainWindow):
         dlg = TagReferenceDialog(self)
         dlg.exec()
 
+    # ── Unsubscribed dialog ──────────────────────────────────────────────────
+    def _show_unsubscribed_dialog(self):
+        from ui_new.unsubscribed_dialog import UnsubscribedDialog
+        dlg = UnsubscribedDialog(self.db, self)
+        dlg.exec()
+
     # ── Stats refresh ─────────────────────────────────────────────────────────
     def _refresh_global_stats(self):
         total_sent = sum(p.sent_count  for p in self.task_panels)
@@ -442,5 +494,11 @@ class MainWindow(QMainWindow):
         timer.timeout.connect(self._refresh_global_stats)
         timer.start(2000)
 
-# Import fix for TabBar styling custom close button hiding
-from PySide6.QtWidgets import QTabBar
+    def closeEvent(self, event):
+        """Persist all task parameters and recipients when closing the app."""
+        for p in self.task_panels:
+            try:
+                p._save_settings()
+            except Exception:
+                pass
+        super().closeEvent(event)
