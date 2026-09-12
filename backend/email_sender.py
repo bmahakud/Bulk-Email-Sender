@@ -323,7 +323,13 @@ class EmailSenderWorker(QThread):
                         except Exception as e:
                             self.log_message.emit(f"⚠️ Could not embed image {img}: {e}")
                     if inline_images:
-                        final_body += "\n" + "\n".join(inline_images)
+                        joined_imgs = "\n" + "\n".join(inline_images) + "\n"
+                        if "</body>" in final_body:
+                            final_body = final_body.replace("</body>", f"{joined_imgs}</body>", 1)
+                        elif "</html>" in final_body:
+                            final_body = final_body.replace("</html>", f"{joined_imgs}</html>", 1)
+                        else:
+                            final_body += joined_imgs
                 else:
                     # Existing behavior — unchanged for every other mode
                     for img in image_paths:
