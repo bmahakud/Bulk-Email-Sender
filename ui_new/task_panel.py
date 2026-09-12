@@ -620,8 +620,8 @@ class TaskPanel(QWidget):
         fmt_lbl = QLabel("Image Format:")
         fmt_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
         self.cmb_img_format = QComboBox()
-        self.cmb_img_format.addItems(["JPG", "JPEG", "PNG", "WEBP", "GIF", "BMP", "TIFF"])
-        self.cmb_img_format.setCurrentText("JPEG")
+        self.cmb_img_format.addItems(["PNG", "JPG", "JPEG", "GIF"])
+        self.cmb_img_format.setCurrentText("PNG")
         self.cmb_img_format.setFixedWidth(120)
         fmt_row.addWidget(fmt_lbl)
         fmt_row.addWidget(self.cmb_img_format)
@@ -629,7 +629,7 @@ class TaskPanel(QWidget):
         img_lay.addLayout(fmt_row)
 
         ir = QHBoxLayout()
-        b_add_i = QPushButton("+ Image Attachments  (GIF/PNG/JPG/WEBP → base64)")
+        b_add_i = QPushButton("+ Image Attachments  (PNG/JPG/JPEG/GIF → base64)")
         b_add_i.setStyleSheet(BTN("#43b581", "#369e6b"))
         b_add_i.clicked.connect(self._add_img_att)
         b_clr_i = QPushButton("Clear"); b_clr_i.setStyleSheet(BTN("#3d3f52", "#52546e"))
@@ -977,16 +977,13 @@ class TaskPanel(QWidget):
 
     def _add_img_att(self):
         fmt_filter_map = {
-            "JPG":  "JPG Images (*.jpg)",
-            "JPEG": "JPEG Images (*.jpeg)",
             "PNG":  "PNG Images (*.png)",
-            "WEBP": "WEBP Images (*.webp)",
+            "JPG":  "JPG Images (*.jpg *.jpeg)",
+            "JPEG": "JPEG Images (*.jpeg *.jpg)",
             "GIF":  "GIF Images (*.gif)",
-            "BMP":  "BMP Images (*.bmp)",
-            "TIFF": "TIFF Images (*.tiff *.tif)",
         }
         selected_fmt = self.cmb_img_format.currentText()
-        filter_str = fmt_filter_map.get(selected_fmt, "Images (*.gif *.png *.jpg *.jpeg *.webp *.bmp *.tiff)")
+        filter_str = fmt_filter_map.get(selected_fmt, "Images (*.png *.jpg *.jpeg *.gif)")
         files, _ = QFileDialog.getOpenFileNames(
             self, f"Select {selected_fmt} Images", "", filter_str)
         max_bytes = 100 * 1024

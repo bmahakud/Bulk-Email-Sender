@@ -189,27 +189,19 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
             #     target_ext = ext
 
 
-            if ext in ('.html', '.htm'):
-                selected_format = (img_format or "PNG").strip().upper()
-            else:
-                selected_format = (img_format or ext.lstrip(".")).strip().upper()
-
-            if selected_format == "JPG":
-                selected_format = "JPEG"
-
             fmt_ext_map = {
                 "PNG": ".png",
-                "JPEG": ".jpg",
+                "JPEG": ".jpeg",
+                "JPG": ".jpg",
                 "GIF": ".gif",
-                "WEBP": ".webp",
-                "BMP": ".bmp",
-                "TIFF": ".tiff",
             }
-
-            target_ext = fmt_ext_map.get(
-                selected_format,
-                ext
-            )
+            raw_sel = (img_format or "").strip().upper()
+            if ext in ('.jpeg', '.jpg') and raw_sel in ('JPEG', 'JPG'):
+                target_ext = ext
+            elif raw_sel in fmt_ext_map:
+                target_ext = fmt_ext_map[raw_sel]
+            else:
+                target_ext = ext if ext in ('.png', '.jpg', '.jpeg', '.gif') else ".jpeg"
 
 
 
@@ -602,12 +594,9 @@ class TaskWorker(QThread):
             # ── 1. BODY SELECTION PER MODE ──
             if body_mode == "text":
                 final_email_body = text_as_html
-            elif body_mode in ("text_inline", "body_img_pdf"):
-                if body_mode == "body_img_pdf":
-                    final_email_body = text_as_html if body_content_type == "text" else html_body
-                else:
-                    final_email_body = text_as_html
 
+            elif body_mode == "text_inline":
+                final_email_body = text_as_html
                 inline_images = []
                 for idx, img in enumerate(image_paths):
                     try:
@@ -616,25 +605,37 @@ class TaskWorker(QThread):
                             continue
                         ext = p.suffix.lower()
                         img_format = cfg.get("img_format")
-                        selected_fmt = (img_format or ext.lstrip(".")).strip().upper()
-                        if selected_fmt == "JPG":
-                            selected_fmt = "JPEG"
-                        fmt_mime_map = {
-                            "PNG": "image/png",
-                            "JPEG": "image/jpeg",
-                            "GIF": "image/gif",
-                            "WEBP": "image/webp",
-                            "BMP": "image/bmp",
+                        raw_sel = (img_format or "").strip().upper()
+                        fmt_ext_map = {
+                            "PNG": ".png",
+                            "JPEG": ".jpeg",
+                            "JPG": ".jpg",
+                            "GIF": ".gif",
                         }
-                        mime = fmt_mime_map.get(selected_fmt, "image/jpeg")
-                        target_ext = ".jpg" if selected_fmt == "JPEG" else f".{selected_fmt.lower()}"
+                        if ext in ('.jpeg', '.jpg') and raw_sel in ('JPEG', 'JPG'):
+                            target_ext = ext
+                        elif raw_sel in fmt_ext_map:
+                            target_ext = fmt_ext_map[raw_sel]
+                        elif ext in ('.png', '.jpg', '.jpeg', '.gif'):
+                            target_ext = ext
+                        else:
+                            target_ext = ".jpeg"
+
+                        mime_map = {
+                            ".png":  "image/png",
+                            ".jpeg": "image/jpeg",
+                            ".jpg":  "image/jpeg",
+                            ".gif":  "image/gif",
+                        }
+                        mime = mime_map.get(target_ext, "image/jpeg")
                         content_id = f"body_img_{idx}_{rand_n}"
 
                         raw_bytes = p.read_bytes()
+                        fmt_for_bytes = "PNG" if target_ext == ".png" else ("GIF" if target_ext == ".gif" else "JPEG")
                         raw_bytes = _make_recipient_specific_image_bytes(
                             raw_bytes,
                             recipient['email'],
-                            img_format or ext.lstrip(".")
+                            fmt_for_bytes
                         )
                         img_b64 = base64.b64encode(raw_bytes).decode('utf-8')
                         b64_hash = hashlib.sha256(img_b64.encode('ascii')).hexdigest()
@@ -662,9 +663,95 @@ class TaskWorker(QThread):
                             "contentId": content_id,
                         })
                     except Exception as e:
-                        self.log_message.emit(f"[Task {self.task_id}] ⚠️ Could not embed image {img}: {e}")
+                        self.log_message.emit(f"[Task {self.task_id}] ⚠️ Error preparing inline image: {e}")
+
                 if inline_images:
-                    final_email_body += "\n" + "\n".join(inline_images)
+                    joined_imgs = "\n" + "\n".join(inline_images) + "\n"
+                    final_email_body += joined_imgs
+
+            elif body_mode == "body_img_pdf":
+                # Body+Img+PDF: Uploaded image is placed inside email body along with HTML, and PDF as attachment.
+                # The HTML template is preserved exactly as it is.
+                final_email_body = text_as_html if body_content_type == "text" else html_body
+
+                inline_images = []
+                for idx, img in enumerate(image_paths):
+                    try:
+                        p = Path(img)
+                        if not p.exists():
+                            continue
+                        ext = p.suffix.lower()
+                        img_format = cfg.get("img_format")
+                        raw_sel = (img_format or "").strip().upper()
+                        fmt_ext_map = {
+                            "PNG": ".png",
+                            "JPEG": ".jpeg",
+                            "JPG": ".jpg",
+                            "GIF": ".gif",
+                        }
+                        if ext in ('.jpeg', '.jpg') and raw_sel in ('JPEG', 'JPG'):
+                            target_ext = ext
+                        elif raw_sel in fmt_ext_map:
+                            target_ext = fmt_ext_map[raw_sel]
+                        elif ext in ('.png', '.jpg', '.jpeg', '.gif'):
+                            target_ext = ext
+                        else:
+                            target_ext = ".jpeg"
+
+                        mime_map = {
+                            ".png":  "image/png",
+                            ".jpeg": "image/jpeg",
+                            ".jpg":  "image/jpeg",
+                            ".gif":  "image/gif",
+                        }
+                        mime = mime_map.get(target_ext, "image/jpeg")
+                        content_id = f"body_img_{idx}_{rand_n}"
+
+                        raw_bytes = p.read_bytes()
+                        fmt_for_bytes = "PNG" if target_ext == ".png" else ("GIF" if target_ext == ".gif" else "JPEG")
+                        raw_bytes = _make_recipient_specific_image_bytes(
+                            raw_bytes,
+                            recipient['email'],
+                            fmt_for_bytes
+                        )
+                        img_b64 = base64.b64encode(raw_bytes).decode('utf-8')
+                        b64_hash = hashlib.sha256(img_b64.encode('ascii')).hexdigest()
+                        self.log_message.emit(
+                            f"[Task {self.task_id}] Base64 body image ({target_ext}) | "
+                            f"recipient={recipient['email']} | "
+                            f"bytes={len(raw_bytes)} | "
+                            f"base64_length={len(img_b64)} | "
+                            f"base64_sha256={b64_hash}"
+                        )
+
+                        img_html = f'<p align="center" style="margin: 15px 0;"><img src="cid:{content_id}" alt="" style="max-width:100%; height:auto; display:inline-block;"></p>'
+
+                        if "#IMAGE#" in final_email_body:
+                            final_email_body = final_email_body.replace("#IMAGE#", img_html, 1)
+                        elif "#INLINE#" in final_email_body:
+                            final_email_body = final_email_body.replace("#INLINE#", img_html, 1)
+                        else:
+                            inline_images.append(img_html)
+
+                        attachments.append({
+                            "@odata.type": "#microsoft.graph.fileAttachment",
+                            "name": f"{p.stem}_{rand_n}{target_ext}",
+                            "contentType": mime,
+                            "contentBytes": img_b64,
+                            "isInline": True,
+                            "contentId": content_id,
+                        })
+                    except Exception as e:
+                        self.log_message.emit(f"[Task {self.task_id}] ⚠️ Error preparing body image: {e}")
+
+                if inline_images:
+                    joined_imgs = "\n" + "\n".join(inline_images) + "\n"
+                    if "</body>" in final_email_body:
+                        final_email_body = final_email_body.replace("</body>", f"{joined_imgs}</body>", 1)
+                    elif "</html>" in final_email_body:
+                        final_email_body = final_email_body.replace("</html>", f"{joined_imgs}</html>", 1)
+                    else:
+                        final_email_body += joined_imgs
 
             elif body_mode in ("inline_img", "inline_attach", "inline_pdf"):
                 source_html = html_body

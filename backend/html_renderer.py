@@ -17,6 +17,7 @@ class HTMLRenderer:
         Render HTML content to a PDF file using QPdfWriter
         """
         try:
+            Path(pdf_path).parent.mkdir(parents=True, exist_ok=True)
             doc = QTextDocument()
             doc.setHtml(html_content)
             
@@ -30,6 +31,30 @@ class HTMLRenderer:
             
             writer = QPdfWriter(pdf_path)
             writer.setPageSize(QPageSize(selected_size))
+            writer.setResolution(96)
+
+            try:
+                from PySide6.QtGui import QPageLayout
+                from PySide6.QtCore import QMarginsF
+                writer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+            except Exception:
+                try:
+                    from PySide6.QtCore import QMarginsF
+                    writer.setPageMargins(QMarginsF(0, 0, 0, 0))
+                except Exception:
+                    pass
+
+            # Match document layout width to printer page width at 96 DPI
+            try:
+                paint_rect = writer.pageLayout().paintRectPixels(writer.resolution())
+                page_w = paint_rect.width()
+                page_h = paint_rect.height()
+            except Exception:
+                page_w = writer.width()
+                page_h = writer.height()
+
+            if page_w and page_w > 0 and page_h and page_h > 0:
+                doc.setPageSize(QSizeF(page_w, page_h))
             
             # Print document to compiler pdf writer
             doc.print_(writer)
@@ -104,7 +129,8 @@ class HTMLRenderer:
         Render HTML input to a temporary PDF and return its base64 bytes
         
         """
-        temp_pdf = str(Path("temp") / "temp_attachment.pdf")
+        import uuid
+        temp_pdf = str(Path("temp") / f"temp_attachment_{uuid.uuid4().hex[:8]}.pdf")
         if cls.render_html_to_pdf(html_content, temp_pdf, page_size_str):
             try:
                 with open(temp_pdf, "rb") as f:
