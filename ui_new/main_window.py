@@ -92,6 +92,7 @@ class TagReferenceDialog(QDialog):
         ("#TIME#",    "System time — auto-picked or manual"),
         ("#EMAIL#",   "Recipient email address"),
         ("#NAME#",    "Recipient name from CSV; else email prefix"),
+        ("#USER#",    "Recipient email prefix (part before @, e.g. poojagupta22042003)"),
         ("#INVOICE#", "Random invoice  e.g. INV-26GFY-6366"),
         ("#ORDERID#", "Random order ID e.g. 8266367-2026"),
         ("#TXNID#",   "Random 9-char transaction ID"),
