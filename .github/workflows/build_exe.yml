@@ -1,0 +1,37 @@
+name: Build Windows Executable (.exe)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt pyinstaller
+
+    - name: Build Standalone Windows EXE
+      run: |
+        pyinstaller --clean promailer_pro_onefile.spec
+
+    - name: Upload Windows Executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: ProMailer_Pro_Windows_Executable
+        path: dist/ProMailer_Pro_Standalone.exe
+        if-no-files-found: error
+
