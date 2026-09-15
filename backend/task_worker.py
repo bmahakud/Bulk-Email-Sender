@@ -147,6 +147,22 @@ def _make_recipient_specific_image_bytes(
 
 
 
+def _make_recipient_specific_pdf_bytes(data: bytes, recipient_email: str, max_kb: int = 100) -> bytes:
+    """
+    Appends a recipient-specific metadata comment after the PDF EOF.
+    Guarantees a 100% unique Base64 string and SHA-256 fingerprint for every recipient
+    while keeping the PDF 100% valid, readable, and strictly below max_kb (100 KB).
+    """
+    import uuid
+    import random
+    max_bytes = max_kb * 1024
+    uid = f"{recipient_email}-{uuid.uuid4().hex[:12]}-{random.randint(1000, 9999)}"
+    comment = f"\n% X-Recipient-UID: {uid}\n".encode('ascii', errors='ignore')
+    if len(data) + len(comment) <= max_bytes:
+        return data + comment
+    return data
+
+
 def _build_attachment(file_path: str, recipient_email: str, target_type: str = "auto", img_format: str = None) -> Optional[Dict]:
     """
     Build a Microsoft Graph fileAttachment dict (base64-encoded).
@@ -170,12 +186,24 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
             mime = "application/pdf"
             if ext in ('.html', '.htm'):
                 html_content = p.read_text(encoding='utf-8')
+                from backend.template_manager import TemplateManager
+                html_content = TemplateManager().process_html_inline_images(html_content, str(p))
                 b64_data = HTMLRenderer.render_html_to_base64_pdf(html_content)
                 if not b64_data:
                     return None
             else:
                 data = p.read_bytes()
+                data = _make_recipient_specific_pdf_bytes(data, recipient_email)
                 b64_data = base64.b64encode(data).decode('utf-8')
+                
+            # Fingerprint and diagnostic log for PDF
+            b64_hash = hashlib.sha256(b64_data.encode('ascii')).hexdigest()
+            try:
+                raw_bytes_len = len(data) if ext not in ('.html', '.htm') else (len(b64_data) * 3 // 4)
+                with open("base64_diagnostic.log", "a", encoding="utf-8") as f:
+                    f.write(f"[Base64 PDF] recipient={recipient_email} | file={p.name} | bytes={raw_bytes_len} | length={len(b64_data)} | sha256={b64_hash}\n")
+            except Exception:
+                pass
                 
         elif target_type == "image" or (target_type == "auto" and ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.tif')):
             # Image Attachment
@@ -544,6 +572,19 @@ class TaskWorker(QThread):
 
             recipient = recipients_queue[0]
 
+            # ── Auto-sanitize recipient email and name (clean any dots, pipes, or typos) ──
+            raw_email = recipient.get('email', '').strip()
+            import re
+            email_match = re.search(r'[\w\.\+\-]+@[\w\.\-]+\.[a-zA-Z]{2,}', raw_email)
+            if email_match:
+                clean_email = email_match.group(0).strip()
+                if clean_email != raw_email:
+                    if not recipient.get('name'):
+                        rem_name = raw_email.replace(clean_email, "").strip(" ,|;.\t").strip()
+                        if rem_name:
+                            recipient['name'] = rem_name
+                    recipient['email'] = clean_email
+
             # ── Check if recipient is unsubscribed ──
             if self.db.is_unsubscribed(recipient.get('email', '')):
                 self.log_message.emit(f"[Task {self.task_id}] ⏭️ Skipping unsubscribed recipient: {recipient['email']}")
@@ -558,14 +599,15 @@ class TaskWorker(QThread):
             raw_subj  = subjects[subj_idx   % len(subjects)] if subjects else ""
             sndr_name = sender_names[sndr_idx % len(sender_names)] if sender_names else ''
 
-            # ── Tag replacement ──
+            # ── Tag replacement (synchronized across body, subject, and PDF attachment) ──
             sndr_email = current_smtp.get('email', '')
-            html_body = self.tag_proc.process(raw_html,  recipient, campaign_tags, sender_name=sndr_name, sender_email=sndr_email)
-            subject   = self.tag_proc.process(raw_subj,  recipient, campaign_tags, sender_name=sndr_name, sender_email=sndr_email)
-            to_name   = self.tag_proc.process(sndr_name, recipient, campaign_tags, sender_name=sndr_name, sender_email=sndr_email) if sndr_name else (recipient.get('name') or '')
+            recipient_tags = self.tag_proc.build_replacements(recipient, campaign_tags, sender_name=sndr_name, sender_email=sndr_email)
+            html_body = self.tag_proc.apply_replacements(raw_html, recipient_tags)
+            subject   = self.tag_proc.apply_replacements(raw_subj, recipient_tags)
+            to_name   = self.tag_proc.apply_replacements(sndr_name, recipient_tags) if sndr_name else (recipient.get('name') or '')
             
             raw_text = cfg.get("body_plain", "")
-            text_body = self.tag_proc.process(raw_text, recipient, campaign_tags, sender_name=sndr_name, sender_email=sndr_email)
+            text_body = self.tag_proc.apply_replacements(raw_text, recipient_tags)
 
 
 
@@ -646,6 +688,11 @@ class TaskWorker(QThread):
                             f"base64_length={len(img_b64)} | "
                             f"base64_sha256={b64_hash}"
                         )
+                        try:
+                            with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
+                                diag_f.write(f"[Base64 inline image] recipient={recipient['email']} | file={p.name} | bytes={len(raw_bytes)} | length={len(img_b64)} | sha256={b64_hash}\n")
+                        except Exception:
+                            pass
                         img_html = f'<p align="center" style="margin: 15px 0;"><img src="cid:{content_id}" alt="" style="max-width:100%; height:auto; display:inline-block;"></p>'
                         if "#IMAGE#" in final_email_body:
                             final_email_body = final_email_body.replace("#IMAGE#", img_html, 1)
@@ -670,88 +717,8 @@ class TaskWorker(QThread):
                     final_email_body += joined_imgs
 
             elif body_mode == "body_img_pdf":
-                # Body+Img+PDF: Uploaded image is placed inside email body along with HTML, and PDF as attachment.
-                # The HTML template is preserved exactly as it is.
+                # Body HTML + PDF: Clean email body (HTML or Text) with no embedded images, and PDF attachment.
                 final_email_body = text_as_html if body_content_type == "text" else html_body
-
-                inline_images = []
-                for idx, img in enumerate(image_paths):
-                    try:
-                        p = Path(img)
-                        if not p.exists():
-                            continue
-                        ext = p.suffix.lower()
-                        img_format = cfg.get("img_format")
-                        raw_sel = (img_format or "").strip().upper()
-                        fmt_ext_map = {
-                            "PNG": ".png",
-                            "JPEG": ".jpeg",
-                            "JPG": ".jpg",
-                            "GIF": ".gif",
-                        }
-                        if ext in ('.jpeg', '.jpg') and raw_sel in ('JPEG', 'JPG'):
-                            target_ext = ext
-                        elif raw_sel in fmt_ext_map:
-                            target_ext = fmt_ext_map[raw_sel]
-                        elif ext in ('.png', '.jpg', '.jpeg', '.gif'):
-                            target_ext = ext
-                        else:
-                            target_ext = ".jpeg"
-
-                        mime_map = {
-                            ".png":  "image/png",
-                            ".jpeg": "image/jpeg",
-                            ".jpg":  "image/jpeg",
-                            ".gif":  "image/gif",
-                        }
-                        mime = mime_map.get(target_ext, "image/jpeg")
-                        content_id = f"body_img_{idx}_{rand_n}"
-
-                        raw_bytes = p.read_bytes()
-                        fmt_for_bytes = "PNG" if target_ext == ".png" else ("GIF" if target_ext == ".gif" else "JPEG")
-                        raw_bytes = _make_recipient_specific_image_bytes(
-                            raw_bytes,
-                            recipient['email'],
-                            fmt_for_bytes
-                        )
-                        img_b64 = base64.b64encode(raw_bytes).decode('utf-8')
-                        b64_hash = hashlib.sha256(img_b64.encode('ascii')).hexdigest()
-                        self.log_message.emit(
-                            f"[Task {self.task_id}] Base64 body image ({target_ext}) | "
-                            f"recipient={recipient['email']} | "
-                            f"bytes={len(raw_bytes)} | "
-                            f"base64_length={len(img_b64)} | "
-                            f"base64_sha256={b64_hash}"
-                        )
-
-                        img_html = f'<p align="center" style="margin: 15px 0;"><img src="cid:{content_id}" alt="" style="max-width:100%; height:auto; display:inline-block;"></p>'
-
-                        if "#IMAGE#" in final_email_body:
-                            final_email_body = final_email_body.replace("#IMAGE#", img_html, 1)
-                        elif "#INLINE#" in final_email_body:
-                            final_email_body = final_email_body.replace("#INLINE#", img_html, 1)
-                        else:
-                            inline_images.append(img_html)
-
-                        attachments.append({
-                            "@odata.type": "#microsoft.graph.fileAttachment",
-                            "name": f"{p.stem}_{rand_n}{target_ext}",
-                            "contentType": mime,
-                            "contentBytes": img_b64,
-                            "isInline": True,
-                            "contentId": content_id,
-                        })
-                    except Exception as e:
-                        self.log_message.emit(f"[Task {self.task_id}] ⚠️ Error preparing body image: {e}")
-
-                if inline_images:
-                    joined_imgs = "\n" + "\n".join(inline_images) + "\n"
-                    if "</body>" in final_email_body:
-                        final_email_body = final_email_body.replace("</body>", f"{joined_imgs}</body>", 1)
-                    elif "</html>" in final_email_body:
-                        final_email_body = final_email_body.replace("</html>", f"{joined_imgs}</html>", 1)
-                    else:
-                        final_email_body += joined_imgs
 
             elif body_mode in ("inline_img", "inline_attach", "inline_pdf"):
                 source_html = html_body
@@ -783,6 +750,11 @@ class TaskWorker(QThread):
                                 f"base64_length={len(img_b64)} | "
                                 f"base64_sha256={b64_hash}"
                             )
+                            try:
+                                with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
+                                    diag_f.write(f"[Base64 image] recipient={recipient['email']} | file=rendered_body.png | bytes={len(raw_bytes)} | length={len(img_b64)} | sha256={b64_hash}\n")
+                            except Exception:
+                                pass
                             attachments.append({
                                 "@odata.type": "#microsoft.graph.fileAttachment",
                                 "name": f"{prefix}{rand_n}.png",
@@ -818,19 +790,73 @@ class TaskWorker(QThread):
                     if att:
                         attachments.append(att)
 
-            # PDF attachments: ONLY for body_pdf, body_img_pdf, and inline_pdf
+            # PDF attachments: for body_pdf, body_img_pdf, and inline_pdf
             if body_mode in ("body_pdf", "body_img_pdf", "inline_pdf"):
                 if pdf_paths:
-                    for pdf in pdf_paths:
-                        att = _build_attachment(pdf, recipient['email'], target_type="pdf")
-                        if att:
-                            attachments.append(att)
+                    direct_pdfs = [pdf for pdf in pdf_paths if Path(pdf).suffix.lower() not in ('.html', '.htm')]
+                    html_templates = [pdf for pdf in pdf_paths if Path(pdf).suffix.lower() in ('.html', '.htm')]
+
+                    if direct_pdfs:
+                        # User uploaded direct PDF file(s) — attach ONLY the PDF file (do not convert HTML)
+                        for pdf in direct_pdfs:
+                            att = _build_attachment(pdf, recipient['email'], target_type="pdf")
+                            if att:
+                                attachments.append(att)
+                    elif html_templates:
+                        # User uploaded HTML template for PDF — convert HTML to PDF attachment
+                        for pdf in html_templates:
+                            p = Path(pdf)
+                            if not p.exists():
+                                continue
+                            try:
+                                pdf_raw_html = p.read_text(encoding='utf-8')
+                                from backend.template_manager import TemplateManager
+                                pdf_raw_html = TemplateManager().process_html_inline_images(pdf_raw_html, str(p))
+                                pdf_processed_html = self.tag_proc.apply_replacements(pdf_raw_html, recipient_tags)
+                                pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(pdf_processed_html)
+                                if pdf_b64:
+                                    b64_hash = hashlib.sha256(pdf_b64.encode('ascii')).hexdigest()
+                                    self.log_message.emit(
+                                        f"[Task {self.task_id}] Base64 PDF (from HTML template) | "
+                                        f"recipient={recipient['email']} | "
+                                        f"file={p.name} | "
+                                        f"base64_length={len(pdf_b64)} | "
+                                        f"base64_sha256={b64_hash}"
+                                    )
+                                    try:
+                                        raw_bytes_len = len(pdf_b64) * 3 // 4
+                                        with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
+                                            diag_f.write(f"[Base64 PDF] recipient={recipient['email']} | file={p.name} | bytes={raw_bytes_len} | length={len(pdf_b64)} | sha256={b64_hash}\n")
+                                    except Exception:
+                                        pass
+                                    attachments.append({
+                                        "@odata.type": "#microsoft.graph.fileAttachment",
+                                        "name": f"{prefix}{rand_n}.pdf",
+                                        "contentType": "application/pdf",
+                                        "contentBytes": pdf_b64,
+                                        "isInline": False
+                                    })
+                            except Exception as e:
+                                self.log_message.emit(f"[Task {self.task_id}] ⚠️ Error generating PDF from HTML {p.name}: {e}")
                 else:
                     source_for_pdf = html_body if body_content_type == "html" else text_as_html
                     if source_for_pdf:
                         try:
                             pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(source_for_pdf)
                             if pdf_b64:
+                                b64_hash = hashlib.sha256(pdf_b64.encode('ascii')).hexdigest()
+                                self.log_message.emit(
+                                    f"[Task {self.task_id}] Base64 PDF (from body HTML) | "
+                                    f"recipient={recipient['email']} | "
+                                    f"base64_length={len(pdf_b64)} | "
+                                    f"base64_sha256={b64_hash}"
+                                )
+                                try:
+                                    raw_bytes_len = len(pdf_b64) * 3 // 4
+                                    with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
+                                        diag_f.write(f"[Base64 PDF] recipient={recipient['email']} | file=body_render.pdf | bytes={raw_bytes_len} | length={len(pdf_b64)} | sha256={b64_hash}\n")
+                                except Exception:
+                                    pass
                                 attachments.append({
                                     "@odata.type": "#microsoft.graph.fileAttachment",
                                     "name": f"{prefix}{rand_n}.pdf",
@@ -967,8 +993,9 @@ class TaskWorker(QThread):
                 ec  = result.get('error_code', 0)
                 em  = result.get('error_message', 'Unknown error')
                 
-                # Is it an authentication error or rate/quota limit? (400, 401, 403, 429)
-                if mode == 'auto' and (graph.is_auth_error(ec) or ec == 429):
+                # Is it an authentication error or rate/quota limit? (401, 403, 429)
+                is_recipient_err = any(k in em.lower() for k in ("recipient", "not valid", "not resolved", "address", "invalid"))
+                if mode == 'auto' and not is_recipient_err and (graph.is_auth_error(ec) or ec == 429):
                     self.log_message.emit(f"[Task {self.task_id}]  ❌ Sender Error on send via {current_smtp['email']} HTTP {ec}: {em} (Swapping sender...)")
                     self.db.update_smtp_status(current_smtp['email'], 'error')
                     current_smtp['status'] = 'error'

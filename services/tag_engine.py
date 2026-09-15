@@ -38,6 +38,7 @@ class TagEngine:
         tag_map = {
             "#EMAIL#": recipient_data.get("email", ""),
             "#NAME#": recipient_data.get("name", ""),
+            "#USER#": recipient_data.get("email", "").split("@")[0] if "@" in recipient_data.get("email", "") else recipient_data.get("email", ""),
             "#COMPANY#": recipient_data.get("company", ""),
             "#INVOICE#": recipient_data.get("invoice", ""),
         }

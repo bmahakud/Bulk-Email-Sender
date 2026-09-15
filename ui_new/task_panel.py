@@ -447,7 +447,7 @@ class TaskPanel(QWidget):
         
         self.rb_body_img = QRadioButton("Body+Img")
         self.rb_body_pdf = QRadioButton("Body+PDF")
-        self.rb_body_img_pdf = QRadioButton("Body+Img+PDF")
+        self.rb_body_img_pdf = QRadioButton("Body HTML+PDF")
         
         self.rb_inline_attach = QRadioButton("Inline+Attach")
         self.rb_inline_pdf = QRadioButton("Inline+PDF")
@@ -588,18 +588,19 @@ class TaskPanel(QWidget):
         tl.addWidget(self.txt_body_plain)
         self.g_txt.setLayout(tl); lay.addWidget(self.g_txt)
 
-        # HTML templates
-        self.g_html = QGroupBox("HTML Templates  (multiple files = rotation  +  base64 inline images)")
+        # HTML templates (Email Body)
+        self.g_html = QGroupBox("Email Body — HTML Templates  (multiple files = rotation  +  base64 inline images)")
         hl = QVBoxLayout()
-        hl.addWidget(QLabel("💡 Upload HTML files — images inside <img src='…'> auto-embedded as base64."))
+        hl.addWidget(QLabel("💡 Upload HTML file(s) for the Email Body — images inside <img src='…'> auto-embedded as base64."))
         br = QHBoxLayout()
-        b_add_h = QPushButton("+ Add HTML File"); b_add_h.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_add_h = QPushButton("+ Add Body HTML File"); b_add_h.setStyleSheet(BTN("#5865f2", "#4752c4"))
         b_add_h.clicked.connect(self._add_html)
         b_clr_h = QPushButton("Clear");           b_clr_h.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_h.clicked.connect(lambda: self.html_list.clear())
         br.addWidget(b_add_h); br.addWidget(b_clr_h); br.addStretch()
         hl.addLayout(br)
         self.html_list = QListWidget(); self.html_list.setFixedHeight(90)
+        self.html_list.itemDoubleClicked.connect(lambda item: self.html_list.takeItem(self.html_list.row(item)))
         hl.addWidget(self.html_list)
         self.chk_inline_b64 = QCheckBox("Convert images to base64 inline  (recommended — avoids spam filters)")
         self.chk_inline_b64.setChecked(True)
@@ -637,6 +638,7 @@ class TaskPanel(QWidget):
         ir.addWidget(b_add_i); ir.addWidget(b_clr_i); ir.addStretch()
         img_lay.addLayout(ir)
         self.img_att_list = QListWidget(); self.img_att_list.setFixedHeight(70)
+        self.img_att_list.itemDoubleClicked.connect(lambda item: self.img_att_list.takeItem(self.img_att_list.row(item)))
         img_lay.addWidget(self.img_att_list)
         al.addWidget(self.wdg_img_att)
 
@@ -645,14 +647,22 @@ class TaskPanel(QWidget):
         self.wdg_pdf_att.setStyleSheet("background:transparent;")
         pdf_lay = QVBoxLayout(self.wdg_pdf_att)
         pdf_lay.setContentsMargins(0, 0, 0, 0)
+        
+        pdf_lbl = QLabel("PDF Attachment  (Upload HTML Template to convert to PDF, OR upload .pdf file):")
+        pdf_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
+        pdf_lay.addWidget(pdf_lbl)
+
         pr = QHBoxLayout()
-        b_add_p = QPushButton("+ PDF Attachments → base64"); b_add_p.setStyleSheet(BTN("#f0a500", "#c88a00"))
+        b_add_p_html = QPushButton("+ Add HTML for PDF (.html)"); b_add_p_html.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_add_p_html.clicked.connect(self._add_pdf_html)
+        b_add_p = QPushButton("+ Add PDF File (.pdf)"); b_add_p.setStyleSheet(BTN("#f0a500", "#c88a00"))
         b_add_p.clicked.connect(self._add_pdf_att)
         b_clr_p = QPushButton("Clear"); b_clr_p.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_p.clicked.connect(lambda: self.pdf_att_list.clear())
-        pr.addWidget(b_add_p); pr.addWidget(b_clr_p); pr.addStretch()
+        pr.addWidget(b_add_p_html); pr.addWidget(b_add_p); pr.addWidget(b_clr_p); pr.addStretch()
         pdf_lay.addLayout(pr)
         self.pdf_att_list = QListWidget(); self.pdf_att_list.setFixedHeight(70)
+        self.pdf_att_list.itemDoubleClicked.connect(lambda item: self.pdf_att_list.takeItem(self.pdf_att_list.row(item)))
         pdf_lay.addWidget(self.pdf_att_list)
         al.addWidget(self.wdg_pdf_att)
 
@@ -720,7 +730,7 @@ class TaskPanel(QWidget):
         g4 = QGroupBox("Available Tags  (quick reference)")
         tl = QVBoxLayout()
         tags_txt = QLabel(
-            "#NAME#  #EMAIL#  #TFN#  #TFN1#  #TFN2#  #DATE#  #TIME#\n"
+            "#NAME#  #EMAIL#  #USER#  #TFN#  #TFN1#  #TFN2#  #DATE#  #TIME#\n"
             "#AMOUNT#  #INVOICE#  #ORDERID#  #ORDER#  #TXNID#  #TYPE#\n"
             "#LETTERS#  #LICENSE#  #REGARDS#  #ADDRESS#\n"
             "#KEY#  #GUID#  #NUMBER#  #RANDOM#  #SERIAL#  #SNUMBER#"
@@ -788,8 +798,11 @@ class TaskPanel(QWidget):
 
     def _clear_recipients(self):
         self.txt_recipients.clear()
+        self.lbl_rec_count.setText("0 recipients loaded")
+        self.db.clear_recipients()
         pfx = f"task_{self.task_id}_"
         self.db.set_setting(pfx + "recipients", "")
+        self._log("🗑 Recipients cleared from list and database pool")
 
     def _validate_recipients(self):
         lines = [l.strip() for l in self.txt_recipients.toPlainText().split('\n') if l.strip()]
@@ -972,8 +985,26 @@ class TaskPanel(QWidget):
     def _add_html(self):
         files, _ = QFileDialog.getOpenFileNames(
             self, "Select HTML Templates", "", "HTML (*.html *.htm)")
+        if not files:
+            return
+        max_bytes = 100 * 1024
+        rejected = []
         for f in files:
-            self.html_list.addItem(f)
+            try:
+                size = Path(f).stat().st_size
+            except Exception:
+                size = 0
+            if size > max_bytes:
+                rejected.append(f"{Path(f).name} ({size // 1024} KB)")
+            else:
+                self.html_list.addItem(f)
+        if rejected:
+            QMessageBox.warning(
+                self, "Template too large",
+                "These HTML templates are over 100KB and were NOT added:\n\n"
+                + "\n".join(rejected)
+                + "\n\nPlease keep HTML body templates below 100KB."
+            )
 
     def _add_img_att(self):
         fmt_filter_map = {
@@ -1004,25 +1035,55 @@ class TaskPanel(QWidget):
                 "\n\nPlease compress or resize them before uploading."
             )
 
-    # def _add_pdf_att(self):
-    #     files, _ = QFileDialog.getOpenFileNames(
-    #         self, "Select PDFs/HTML", "", "PDF/HTML (*.pdf *.html *.htm)")
-    #     for f in files:
-    #         self.pdf_att_list.addItem(f)
-
-
-
-    def _add_pdf_att(self):
+    def _add_pdf_html(self):
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select PDFs/HTML", "", "PDF/HTML (*.pdf *.html *.htm)"
+            self, "Select HTML Template for PDF Attachment", "", "HTML Templates (*.html *.htm)"
         )
+        if not files:
+            return
 
         max_bytes = 100 * 1024
         rejected = []
+        accepted = []
 
         for f in files:
-            # Apply 100 KB restriction only to PDF files.
-            # HTML/HTM files continue to work as before.
+            try:
+                size = Path(f).stat().st_size
+            except Exception:
+                size = 0
+
+            if size > max_bytes:
+                rejected.append(f"{Path(f).name} ({size // 1024} KB)")
+                continue
+
+            accepted.append(f)
+
+        if accepted:
+            self.pdf_att_list.clear()
+            for f in accepted:
+                self.pdf_att_list.addItem(f)
+
+        if rejected:
+            QMessageBox.warning(
+                self,
+                "Template too large",
+                "These HTML templates are over 100KB and were NOT added:\n\n"
+                + "\n".join(rejected)
+                + "\n\nPlease ensure HTML templates are below 100KB."
+            )
+
+    def _add_pdf_att(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select PDF Files", "", "PDF Files (*.pdf)"
+        )
+        if not files:
+            return
+
+        max_bytes = 100 * 1024
+        rejected = []
+        accepted = []
+
+        for f in files:
             if Path(f).suffix.lower() == ".pdf":
                 try:
                     size = Path(f).stat().st_size
@@ -1035,7 +1096,12 @@ class TaskPanel(QWidget):
                     )
                     continue
 
-            self.pdf_att_list.addItem(f)
+            accepted.append(f)
+
+        if accepted:
+            self.pdf_att_list.clear()
+            for f in accepted:
+                self.pdf_att_list.addItem(f)
 
         if rejected:
             QMessageBox.warning(
@@ -1073,14 +1139,27 @@ class TaskPanel(QWidget):
         }
 
     def _recipients_to_db(self):
+        import re
+        # Clear out any old/stale recipients so ONLY the currently listed recipients are sent
+        self.db.clear_recipients()
+        self.db.reset_smtp_statuses()
         added = 0
         for line in self.txt_recipients.toPlainText().split('\n'):
             line = line.strip()
             if not line or '@' not in line:
                 continue
-            parts = line.split(',')
-            email = parts[0].strip()
-            name  = parts[1].strip() if len(parts) > 1 else ""
+
+            # Robust extraction: find the actual email address in the line
+            email_match = re.search(r'[\w\.\+\-]+@[\w\.\-]+\.[a-zA-Z]{2,}', line)
+            if email_match:
+                email = email_match.group(0).strip()
+                # Remaining text on the line is the name, stripping any delimiters (comma, dot, pipe, semicolon)
+                name = line.replace(email, "").strip(" ,|;.\t").strip()
+            else:
+                parts = line.split(',')
+                email = parts[0].strip()
+                name  = parts[1].strip() if len(parts) > 1 else ""
+
             self.db.add_or_reset_recipient(email, name)
             added += 1
         return added
@@ -1163,7 +1242,13 @@ class TaskPanel(QWidget):
         else:
             bm = "html"
         s(pfx + "body_mode", bm)
-        s(pfx + "body_content_type", "text" if self.rb_content_text.isChecked() else "html")
+        if self.rb_text_only.isChecked() or self.rb_text_inline.isChecked():
+            bct = "text"
+        elif self.rb_html_only.isChecked() or self.rb_body_img_pdf.isChecked() or self.rb_inline_attach.isChecked():
+            bct = "html"
+        else:
+            bct = "text" if self.rb_content_text.isChecked() else "html"
+        s(pfx + "body_content_type", bct)
 
         # HTML file paths
         html_paths = [self.html_list.item(i).text() for i in range(self.html_list.count())]
@@ -1362,17 +1447,25 @@ class TaskPanel(QWidget):
         body_content_type = "text" if self.rb_content_text.isChecked() else "html"
         if self.rb_text_only.isChecked() or self.rb_text_inline.isChecked():
             body_content_type = "text"
-        elif self.rb_html_only.isChecked():
+        elif self.rb_html_only.isChecked() or self.rb_body_img_pdf.isChecked() or self.rb_inline_attach.isChecked():
             body_content_type = "html"
 
         # Isolate mode data: only include attachments/templates relevant to the selected body_mode
         img_paths = []
-        if body_mode in ("body_img", "body_img_pdf", "text_inline"):
+        if body_mode in ("body_img", "text_inline"):
             img_paths = [self.img_att_list.item(i).text() for i in range(self.img_att_list.count())]
 
         pdf_paths = []
         if body_mode in ("body_pdf", "body_img_pdf", "inline_pdf"):
-            pdf_paths = [self.pdf_att_list.item(i).text() for i in range(self.pdf_att_list.count())]
+            raw_pdf_items = [self.pdf_att_list.item(i).text() for i in range(self.pdf_att_list.count())]
+            direct_pdfs = [p for p in raw_pdf_items if Path(p).suffix.lower() not in ('.html', '.htm')]
+            html_pdfs = [p for p in raw_pdf_items if Path(p).suffix.lower() in ('.html', '.htm')]
+            if direct_pdfs:
+                pdf_paths = direct_pdfs
+            elif html_pdfs:
+                pdf_paths = html_pdfs
+            else:
+                pdf_paths = []
 
         templates = []
         if body_content_type == "html" and body_mode not in ("text", "text_inline"):
@@ -1468,8 +1561,6 @@ class TaskPanel(QWidget):
         supports_body_type = (
             self.rb_body_img.isChecked() or
             self.rb_body_pdf.isChecked() or
-            self.rb_body_img_pdf.isChecked() or
-            self.rb_inline_attach.isChecked() or
             self.rb_inline_pdf.isChecked()
         )
         
@@ -1483,16 +1574,22 @@ class TaskPanel(QWidget):
                 show_img_att = True
             elif self.rb_body_pdf.isChecked():
                 show_pdf_att = True
-            elif self.rb_body_img_pdf.isChecked():
-                show_img_att = True
-                show_pdf_att = True
-            elif self.rb_inline_attach.isChecked():
-                show_img_att = False
-                show_pdf_att = False
             elif self.rb_inline_pdf.isChecked():
                 show_img_att = False
                 show_pdf_att = True
 
+        elif self.rb_body_img_pdf.isChecked():
+            show_body_type = False
+            show_html = True
+            show_txt = False
+            show_img_att = False
+            show_pdf_att = True
+        elif self.rb_inline_attach.isChecked():
+            show_body_type = False
+            show_html = True
+            show_txt = False
+            show_img_att = False
+            show_pdf_att = False
         elif self.rb_text_inline.isChecked():
             show_txt = True
             show_img_att = True

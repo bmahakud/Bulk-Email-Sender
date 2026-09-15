@@ -14,7 +14,7 @@ class TagProcessor:
     """
     Replaces all #TAG# tokens in text/HTML content.
     Tags supported:
-      #TFN1#, #TFN2#, #DATE#, #TIME#, #EMAIL#, #NAME#,
+      #TFN1#, #TFN2#, #DATE#, #TIME#, #EMAIL#, #NAME#, #USER#,
       #INVOICE#, #ORDERID#, #TXNID#, #TYPE#, #AMOUNT#,
       #KEY#, #GUID#, #SNUMBER#, #ADDRESS#
     """
@@ -112,25 +112,22 @@ class TagProcessor:
         fmt = random.choice(self.DATE_FORMATS)
         return datetime.now().strftime(fmt)
 
-    # def process(self, text: str, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "") -> str:
-    def process(self, text: str, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "", sender_email: str = "") -> str:
+    def build_replacements(self, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "", sender_email: str = "") -> Dict[str, str]:
         """
-        Replace all tags in `text`.
-        :param text: Raw text / HTML with #TAG# markers.
-        :param recipient: Dict with 'email' and optional 'name'.
-        :param campaign_tags: Dict with campaign-level settings from UI.
-        :param sender_name: Configured/current sender regards line.
+        Build the dictionary of tag replacements for a recipient.
+        Calling this once per recipient ensures identical values (e.g. invoice, amount, date)
+        can be applied consistently across email subject, body HTML, and PDF attachment.
         """
-        if not text:
-            return text
-
         if campaign_tags is None:
             campaign_tags = {}
 
-        email = recipient.get("email", "")
-        name  = recipient.get("name", "") or email.split("@")[0]
+        email = recipient.get("email", "") if recipient else ""
+        name  = recipient.get("name", "") if recipient else ""
+        user  = email.split("@")[0] if email and "@" in email else (email or "")
+        if not name and email:
+            name = user
 
-        # Per-email random values (generated once per call)
+        # Per-email random values
         invoice      = self._rand_invoice()
         orderid      = self._rand_orderid()
         txnid        = self._rand_txnid()
@@ -173,37 +170,6 @@ class TagProcessor:
         else:
             tfn_val = tfn2
 
-        # regards = sender_name if sender_name else "Alex John"
-
-        # replacements = {
-        #     "#TFN1#": tfn1,
-        #     "#TFN2#": tfn2,
-        #     "#TFN#": tfn_val,
-        #     "#DATE#": date_str,
-        #     "#TIME#": time_str,
-        #     "#EMAIL#": email,
-        #     "#NAME#": name,
-        #     "#INVOICE#": invoice,
-        #     "#ORDERID#": orderid,
-        #     "#TXNID#": txnid,
-        #     "#TYPE#": pay_type,
-        #     "#AMOUNT#": amount,
-        #     "#KEY#": key,
-        #     "#GUID#": guid,
-        #     "#NUMBER#": number,
-        #     "#RANDOM#": random_mix,
-        #     "#SERIAL#": serial,
-        #     "#SNUMBER#": snumber,
-        #     "#ORDER#": order,
-        #     "#LETTERS#": letters,
-        #     "#LICENSE#": license_key,
-        #     "#REGARDS#": regards,
-        #     "#ADDRESS#": address,
-            
-            
-        #     }
-
-
         regards = sender_name if sender_name else "Alex John"
 
         # Unsubscribe link (points to promailer cloud server if license key available, else mailto fallback)
@@ -228,7 +194,7 @@ class TagProcessor:
             target_sender = sender_email if sender_email else "optout@domain.com"
             unsub_link = f"mailto:{target_sender}?subject=Unsubscribe%20Request&body=Please%20unsubscribe%20my%20email:%20{email}"
 
-        replacements = {
+        return {
             "#TFN1#": tfn1,
             "#TFN2#": tfn2,
             "#TFN#": tfn_val,
@@ -236,6 +202,7 @@ class TagProcessor:
             "#TIME#": time_str,
             "#EMAIL#": email,
             "#NAME#": name,
+            "#USER#": user,
             "#INVOICE#": invoice,
             "#ORDERID#": orderid,
             "#TXNID#": txnid,
@@ -256,9 +223,27 @@ class TagProcessor:
             "#UNSUBSCRIBE#": unsub_link,
         }
 
-
-
-
+    def apply_replacements(self, text: str, replacements: Dict[str, str]) -> str:
+        """Replace all tags in text using the provided dictionary."""
+        if not text:
+            return text
         for tag, val in replacements.items():
             text = text.replace(tag, str(val))
         return text
+
+    # def process(self, text: str, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "") -> str:
+    def process(self, text: str, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "", sender_email: str = "", replacements: Optional[Dict] = None) -> str:
+        """
+        Replace all tags in `text`.
+        :param text: Raw text / HTML with #TAG# markers.
+        :param recipient: Dict with 'email' and optional 'name'.
+        :param campaign_tags: Dict with campaign-level settings from UI.
+        :param sender_name: Configured/current sender regards line.
+        :param sender_email: Current SMTP sender email address.
+        :param replacements: Optional pre-built replacements dict to reuse across body and attachments.
+        """
+        if not text:
+            return text
+        if replacements is None:
+            replacements = self.build_replacements(recipient, campaign_tags, sender_name, sender_email)
+        return self.apply_replacements(text, replacements)

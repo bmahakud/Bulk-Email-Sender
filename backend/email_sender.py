@@ -85,7 +85,10 @@ class EmailSenderWorker(QThread):
                 name = f"{prefix}{rand_n}.pdf"
                 mime = "application/pdf"
                 if ext in ('.html', '.htm'):
-                    b64_data = HTMLRenderer.render_html_to_base64_pdf(p.read_text(encoding='utf-8'))
+                    html_content = p.read_text(encoding='utf-8')
+                    from .template_manager import TemplateManager
+                    html_content = TemplateManager().process_html_inline_images(html_content, str(p))
+                    b64_data = HTMLRenderer.render_html_to_base64_pdf(html_content)
                     if not b64_data:
                         return None
                 else:

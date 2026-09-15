@@ -113,6 +113,10 @@ class Database:
             )
         """)
         
+        # Auto-cleanup corrupted recipient entries and restore SMTP accounts to ready
+        cursor.execute("DELETE FROM recipients WHERE email LIKE '% %'")
+        cursor.execute("UPDATE smtp_accounts SET status='ready' WHERE status='error'")
+
         conn.commit()
         conn.close()
 
@@ -188,6 +192,14 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM smtp_accounts")
+        conn.commit()
+        conn.close()
+
+    def reset_smtp_statuses(self):
+        """Reset all SMTP accounts with error back to ready"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE smtp_accounts SET status='ready' WHERE status='error'")
         conn.commit()
         conn.close()
     
