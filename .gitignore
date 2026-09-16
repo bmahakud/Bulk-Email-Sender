@@ -27,10 +27,7 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script run within a templates
-#  dir or similar. Custom graphs can be templates too.
 *.manifest
-*.spec
 
 # Installer logs
 pip-log.txt

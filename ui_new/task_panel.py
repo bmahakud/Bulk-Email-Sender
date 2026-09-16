@@ -1214,7 +1214,7 @@ class TaskPanel(QWidget):
         s(pfx + "amt_min", str(self.spn_amt_min.value()))
         s(pfx + "amt_max", str(self.spn_amt_max.value()))
         s(pfx + "addresses", self.txt_addresses.toPlainText())
-        s(pfx + "recipients", self.txt_recipients.toPlainText())
+        # Note: Recipients are not saved across sessions so each launch starts empty
 
         # Content
         s(pfx + "subjects", self.txt_subjects.toPlainText())
@@ -1290,28 +1290,11 @@ class TaskPanel(QWidget):
         if v: self.spn_amt_max.setValue(float(v))
         v = g(pfx + "addresses"); self.txt_addresses.setPlainText(v) if v else None
 
-        # Recipients
-        v = g(pfx + "recipients")
-        if v and v.strip():
-            self.txt_recipients.blockSignals(True)
-            self.txt_recipients.setPlainText(v)
-            self.txt_recipients.blockSignals(False)
-            self._on_recipients_changed()
-        else:
-            all_recs = self.db.get_recipients()
-            if all_recs:
-                lines = []
-                for r in all_recs:
-                    em = r.get('email', '').strip()
-                    nm = r.get('name', '').strip()
-                    if em:
-                        lines.append(f"{em},{nm}" if nm else em)
-                if lines:
-                    combined = "\n".join(lines)
-                    self.txt_recipients.blockSignals(True)
-                    self.txt_recipients.setPlainText(combined)
-                    self.txt_recipients.blockSignals(False)
-                    self._on_recipients_changed()
+        # Recipients - always start completely empty on launch
+        self.txt_recipients.blockSignals(True)
+        self.txt_recipients.clear()
+        self.txt_recipients.blockSignals(False)
+        self._on_recipients_changed()
 
         # Content
         v = g(pfx + "subjects");   self.txt_subjects.setPlainText(v) if v else None
