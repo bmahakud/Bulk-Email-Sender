@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Executive Summary & Statement - A1 Format</title>
+<style>
+  @page {
+    size: A1 portrait;
+    margin: 15mm;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #0f172a;
+    background-color: #ffffff;
+    font-size: 18px;
+    line-height: 1.5;
+  }
+  .a1-container {
+    width: 100%;
+    max-width: 560mm;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  .header-banner {
+    background: linear-gradient(135deg, #1e1b4b, #312e81, #4338ca);
+    color: #ffffff;
+    padding: 35px 40px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+  }
+  .banner-title {
+    font-size: 46px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 6px;
+  }
+  .banner-sub {
+    font-size: 22px;
+    color: #c7d2fe;
+    font-weight: 400;
+  }
+  .kpi-row {
+    width: 100%;
+    margin-bottom: 30px;
+  }
+  .kpi-card {
+    background: #f8fafc;
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 25px;
+    text-align: center;
+  }
+  .kpi-num {
+    font-size: 38px;
+    font-weight: 800;
+    color: #4338ca;
+    margin-bottom: 5px;
+  }
+  .kpi-label {
+    font-size: 16px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .table-section {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 35px;
+  }
+  .table-section th {
+    background-color: #1e293b;
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 16px 20px;
+    text-align: left;
+    text-transform: uppercase;
+  }
+  .table-section td {
+    padding: 18px 20px;
+    border-bottom: 1.5px solid #cbd5e1;
+    font-size: 18px;
+  }
+  .highlight-cell {
+    font-weight: 700;
+    color: #4338ca;
+  }
+  .info-box {
+    background: #eef2ff;
+    border: 2px solid #c7d2fe;
+    border-radius: 10px;
+    padding: 25px 30px;
+    margin-bottom: 30px;
+    font-size: 18px;
+    color: #312e81;
+  }
+  .footer {
+    border-top: 3px solid #1e293b;
+    padding-top: 20px;
+    font-size: 16px;
+    color: #64748b;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<div class="a1-container">
+  <!-- Header Banner -->
+  <div class="header-banner">
+    <table width="100%">
+      <tr>
+        <td>
+          <div class="banner-title">ENTERPRISE CLOUD AUDIT & BILLING MANIFEST</div>
+          <div class="banner-sub">Global Operations Management & Service Level Execution Summary</div>
+        </td>
+        <td align="right" valign="middle">
+          <div style="font-size: 26px; font-weight: 800; color: #a5b4fc;">FORMAT: A1 POSTER</div>
+          <div style="font-size: 18px; color: #e0e7ff;">Ref: #INVOICE#</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- KPI Metrics Grid -->
+  <table class="kpi-row" width="100%" cellspacing="15">
+    <tr>
+      <td width="25%">
+        <div class="kpi-card">
+          <div class="kpi-num">$#AMOUNT#</div>
+          <div class="kpi-label">Total Amount Paid</div>
+        </div>
+      </td>
+      <td width="25%">
+        <div class="kpi-card">
+          <div class="kpi-num">99.99%</div>
+          <div class="kpi-label">Guaranteed SLA Uptime</div>
+        </div>
+      </td>
+      <td width="25%">
+        <div class="kpi-card">
+          <div class="kpi-num">#DATE#</div>
+          <div class="kpi-label">Execution Date</div>
+        </div>
+      </td>
+      <td width="25%">
+        <div class="kpi-card">
+          <div class="kpi-num">24 / 7</div>
+          <div class="kpi-label">Dedicated Support</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Recipient & Order Metadata -->
+  <table width="100%" style="margin-bottom: 30px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 8px; padding: 20px;">
+    <tr>
+      <td width="33%" valign="top">
+        <div style="font-size: 14px; font-weight: 700; color: #64748b; text-transform: uppercase;">Client Profile</div>
+        <div style="font-size: 22px; font-weight: 800; color: #0f172a; margin-top: 4px;">#NAME#</div>
+        <div style="font-size: 17px; color: #475569;">#EMAIL#</div>
+        <div style="font-size: 17px; color: #475569;">#ADDRESS#</div>
+      </td>
+      <td width="33%" valign="top">
+        <div style="font-size: 14px; font-weight: 700; color: #64748b; text-transform: uppercase;">Transaction Registry</div>
+        <div style="font-size: 17px; margin-top: 4px;">Order ID: <strong>#ORDERID#</strong></div>
+        <div style="font-size: 17px;">Transaction: <strong>#TXNID#</strong></div>
+        <div style="font-size: 17px;">Payment Channel: <strong>#TYPE#</strong></div>
+      </td>
+      <td width="34%" valign="top">
+        <div style="font-size: 14px; font-weight: 700; color: #64748b; text-transform: uppercase;">Support Contacts</div>
+        <div style="font-size: 17px; margin-top: 4px;">Toll-Free Helpline 1: <strong style="color: #4338ca;">#TFN1#</strong></div>
+        <div style="font-size: 17px;">Escalation Desk 2: <strong style="color: #4338ca;">#TFN2#</strong></div>
+        <div style="font-size: 17px;">Billing Status: <strong style="color: #15803d;">SETTLED & CONFIRMED</strong></div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Detailed Service Itemization -->
+  <table class="table-section">
+    <thead>
+      <tr>
+        <th width="45%">Service Architecture & Component</th>
+        <th width="15%">Allocation</th>
+        <th width="20%">Billing Period</th>
+        <th width="20%" style="text-align: right;">Total Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <strong>High-Availability Dedicated Virtual Private Datacenter</strong><br>
+          <span style="font-size: 16px; color: #64748b;">Multi-region redundant compute clusters with dynamic load balancing</span>
+        </td>
+        <td>Enterprise Tier</td>
+        <td>Annual (12 Months)</td>
+        <td style="text-align: right;" class="highlight-cell">$#AMOUNT#</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>Advanced DDoS Defense & Continuous Threat Monitoring</strong><br>
+          <span style="font-size: 16px; color: #64748b;">Layer-7 mitigation with 24/7 Security Operations Center monitoring</span>
+        </td>
+        <td>Unlimited Traffic</td>
+        <td>Annual (12 Months)</td>
+        <td style="text-align: right;" class="highlight-cell">INCLUDED</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>Managed Cloud Backup & Real-Time Immutable Replication</strong><br>
+          <span style="font-size: 16px; color: #64748b;">Zero-loss disaster recovery guarantee with 15-minute RPO/RTO</span>
+        </td>
+        <td>10 TB Storage</td>
+        <td>Annual (12 Months)</td>
+        <td style="text-align: right;" class="highlight-cell">INCLUDED</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>Executive Account Management & Priority Technical Access</strong><br>
+          <span style="font-size: 16px; color: #64748b;">Direct hotline channels: #TFN1# and #TFN2#</span>
+        </td>
+        <td>Dedicated Rep</td>
+        <td>Annual (12 Months)</td>
+        <td style="text-align: right;" class="highlight-cell">INCLUDED</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Information Callout Box -->
+  <div class="info-box">
+    <table width="100%">
+      <tr>
+        <td width="70%">
+          <strong>Need Assistance or Have Inquiries Regarding This Manifest?</strong><br>
+          Our priority technical operations desk is on standby 24 hours a day, 7 days a week. For immediate billing verification, account modification, or dispute resolution, contact our toll-free hotline at <strong>#TFN1#</strong> or <strong>#TFN2#</strong>.
+        </td>
+        <td width="30%" align="right">
+          <div style="font-size: 32px; font-weight: 800; color: #312e81;">TOTAL: $#AMOUNT#</div>
+          <div style="font-size: 16px; color: #6366f1;">PAYMENT COMPLETE</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Footer -->
+  <table width="100%" class="footer">
+    <tr>
+      <td>
+        Global Cloud Infrastructure Group &bull; Manifest Ref: #INVOICE# &bull; Generated for #NAME#
+      </td>
+      <td align="right">
+        Execution Timestamp: #DATE# at #TIME# &bull; Verified by #REGARDS#
+      </td>
+    </tr>
+  </table>
+</div>
+
+</body>
+</html>

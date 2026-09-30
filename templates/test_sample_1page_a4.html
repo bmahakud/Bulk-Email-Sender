@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Invoice #INVOICE#</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1e293b;
+    background-color: #ffffff;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .invoice-box {
+    max-width: 190mm;
+    margin: 0 auto;
+    padding: 12px;
+  }
+  .header-table {
+    width: 100%;
+    border-bottom: 2px solid #4f46e5;
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+  .company-name {
+    font-size: 24px;
+    font-weight: 800;
+    color: #4338ca;
+  }
+  .company-sub {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+  }
+  .invoice-title {
+    font-size: 26px;
+    font-weight: 800;
+    color: #0f172a;
+    text-align: right;
+  }
+  .meta-grid {
+    width: 100%;
+    margin-bottom: 18px;
+  }
+  .meta-cell {
+    vertical-align: top;
+    font-size: 12px;
+  }
+  .meta-label {
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .meta-val {
+    color: #0f172a;
+    font-weight: 600;
+  }
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+  }
+  .items-table th {
+    background-color: #f1f5f9;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 8px 10px;
+    border-top: 1px solid #cbd5e1;
+    border-bottom: 1px solid #cbd5e1;
+    text-align: left;
+  }
+  .items-table td {
+    padding: 9px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 12px;
+  }
+  .totals-table {
+    width: 250px;
+    margin-left: auto;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+  }
+  .totals-table td {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  .grand-row td {
+    border-top: 2px solid #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+    color: #4338ca;
+    padding-top: 8px;
+  }
+  .support-box {
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #4f46e5;
+    padding: 10px 14px;
+    border-radius: 4px;
+    margin-bottom: 14px;
+    font-size: 11.5px;
+    color: #334155;
+  }
+  .footer {
+    text-align: center;
+    font-size: 11px;
+    color: #94a3b8;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<div class="invoice-box">
+  <!-- Header -->
+  <table class="header-table" width="100%">
+    <tr>
+      <td width="60%">
+        <div class="company-name">Apex Global Cloud Services</div>
+        <div class="company-sub">Cloud Enterprise Solutions & Billing Division</div>
+      </td>
+      <td width="40%" align="right">
+        <div class="invoice-title">INVOICE</div>
+        <div style="font-size: 12px; color: #64748b; font-weight: 600;"># #INVOICE#</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Meta Information -->
+  <table class="meta-grid" width="100%">
+    <tr>
+      <td class="meta-cell" width="35%">
+        <div class="meta-label">Billed To</div>
+        <div class="meta-val">#NAME#</div>
+        <div style="color: #64748b;">#EMAIL#</div>
+        <div style="color: #64748b;">#ADDRESS#</div>
+      </td>
+      <td class="meta-cell" width="35%">
+        <div class="meta-label">Order Details</div>
+        <div>Order ID: <span class="meta-val">#ORDERID#</span></div>
+        <div>Transaction: <span class="meta-val">#TXNID#</span></div>
+        <div>Payment Method: <span class="meta-val">#TYPE#</span></div>
+      </td>
+      <td class="meta-cell" width="30%" align="right">
+        <div class="meta-label">Billing Date & Time</div>
+        <div class="meta-val">#DATE#</div>
+        <div style="color: #64748b;">#TIME#</div>
+        <div style="margin-top: 6px; display: inline-block; padding: 2px 8px; background: #dcfce7; color: #15803d; font-weight: 700; border-radius: 4px; font-size: 10px;">PAID IN FULL</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Items Table -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th width="50%">Description</th>
+        <th width="15%" style="text-align: center;">Qty</th>
+        <th width="15%" style="text-align: right;">Unit Price</th>
+        <th width="20%" style="text-align: right;">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <strong>Enterprise Cloud Security & Storage Suite</strong><br>
+          <span style="color: #64748b; font-size: 11px;">Annual subscription for unlimited endpoints with advanced monitoring</span>
+        </td>
+        <td style="text-align: center;">1</td>
+        <td style="text-align: right;">$#AMOUNT#</td>
+        <td style="text-align: right; font-weight: 600;">$#AMOUNT#</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>24/7 Dedicated Priority Technical Hotline</strong><br>
+          <span style="color: #64748b; font-size: 11px;">Direct line: #TFN1#</span>
+        </td>
+        <td style="text-align: center;">1</td>
+        <td style="text-align: right;">$0.00</td>
+        <td style="text-align: right; font-weight: 600;">INCLUDED</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>Automated Real-Time Cloud Backup & Sync</strong><br>
+          <span style="color: #64748b; font-size: 11px;">Encrypted multi-datacenter replication</span>
+        </td>
+        <td style="text-align: center;">1</td>
+        <td style="text-align: right;">$0.00</td>
+        <td style="text-align: right; font-weight: 600;">INCLUDED</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <table class="totals-table">
+    <tr>
+      <td style="color: #64748b;">Subtotal:</td>
+      <td style="text-align: right; font-weight: 600;">$#AMOUNT#</td>
+    </tr>
+    <tr>
+      <td style="color: #64748b;">Tax / VAT (0%):</td>
+      <td style="text-align: right; font-weight: 600;">$0.00</td>
+    </tr>
+    <tr class="grand-row">
+      <td>Total Paid:</td>
+      <td style="text-align: right;">$#AMOUNT#</td>
+    </tr>
+  </table>
+
+  <!-- Support Card -->
+  <div class="support-box">
+    <strong>Questions or Dispute?</strong><br>
+    If you did not authorize this order or require support, please contact our billing helpdesk immediately at toll-free <strong>#TFN1#</strong> or <strong>#TFN2#</strong>.
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    Thank you for your business! &bull; Invoice Ref: #INVOICE# &bull; Generated for #NAME# on #DATE#
+  </div>
+</div>
+
+</body>
+</html>

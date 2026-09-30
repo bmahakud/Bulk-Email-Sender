@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Invoice & Service Agreement #INVOICE#</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1e293b;
+    background-color: #ffffff;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .page {
+    width: 100%;
+    max-width: 190mm;
+    margin: 0 auto;
+    padding: 10px;
+  }
+  .page-1 {
+    page-break-after: always;
+    break-after: page;
+  }
+  .header-table {
+    width: 100%;
+    border-bottom: 2px solid #2563eb;
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+  .company-name {
+    font-size: 24px;
+    font-weight: 800;
+    color: #1e40af;
+  }
+  .invoice-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: #0f172a;
+    text-align: right;
+  }
+  .meta-grid {
+    width: 100%;
+    margin-bottom: 16px;
+  }
+  .meta-cell {
+    vertical-align: top;
+    font-size: 12px;
+  }
+  .meta-label {
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    font-size: 10px;
+    margin-bottom: 2px;
+  }
+  .meta-val {
+    color: #0f172a;
+    font-weight: 600;
+  }
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+  }
+  .items-table th {
+    background-color: #f8fafc;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 8px 10px;
+    border-top: 1px solid #cbd5e1;
+    border-bottom: 1px solid #cbd5e1;
+    text-align: left;
+  }
+  .items-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 12px;
+  }
+  .totals-table {
+    width: 260px;
+    margin-left: auto;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+  }
+  .totals-table td {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  .grand-row td {
+    border-top: 2px solid #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+    color: #1e40af;
+    padding-top: 6px;
+  }
+  .notice-box {
+    background-color: #eff6ff;
+    border: 1px solid #bfdbfe;
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: #1e40af;
+    margin-bottom: 12px;
+  }
+  .page-footer-note {
+    text-align: center;
+    font-size: 10.5px;
+    color: #94a3b8;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 8px;
+  }
+  .terms-heading {
+    font-size: 18px;
+    font-weight: 800;
+    color: #1e40af;
+    border-bottom: 1.5px solid #cbd5e1;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+  }
+  .terms-section {
+    margin-bottom: 14px;
+  }
+  .terms-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 4px;
+  }
+  .terms-body {
+    font-size: 11.5px;
+    color: #475569;
+    line-height: 1.5;
+  }
+  .signature-table {
+    width: 100%;
+    margin-top: 25px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 15px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ========================================== -->
+<!-- PAGE 1: OFFICIAL INVOICE & ORDER SUMMARY   -->
+<!-- ========================================== -->
+<div class="page page-1">
+  <table class="header-table" width="100%">
+    <tr>
+      <td width="60%">
+        <div class="company-name">Horizon Enterprise Group</div>
+        <div style="font-size: 11px; color: #64748b;">Enterprise Infrastructure & SLA Contract Management</div>
+      </td>
+      <td width="40%" align="right">
+        <div class="invoice-title">INVOICE & SLA</div>
+        <div style="font-size: 11px; color: #64748b; font-weight: 600;">Ref: #INVOICE#</div>
+        <div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Page 1 of 2</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Meta -->
+  <table class="meta-grid" width="100%">
+    <tr>
+      <td class="meta-cell" width="35%">
+        <div class="meta-label">Customer Information</div>
+        <div class="meta-val">#NAME#</div>
+        <div style="color: #64748b;">#EMAIL#</div>
+        <div style="color: #64748b;">#ADDRESS#</div>
+      </td>
+      <td class="meta-cell" width="35%">
+        <div class="meta-label">Order Identifiers</div>
+        <div>Order Number: <span class="meta-val">#ORDERID#</span></div>
+        <div>Transaction ID: <span class="meta-val">#TXNID#</span></div>
+        <div>Payment Channel: <span class="meta-val">#TYPE#</span></div>
+      </td>
+      <td class="meta-cell" width="30%" align="right">
+        <div class="meta-label">Contract Execution</div>
+        <div class="meta-val">#DATE#</div>
+        <div style="color: #64748b;">#TIME#</div>
+        <div style="margin-top: 6px; display: inline-block; padding: 2px 8px; background: #dbeafe; color: #1e40af; font-weight: 700; border-radius: 4px; font-size: 10px;">ACTIVE / VERIFIED</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Item Table -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th width="50%">Service Description</th>
+        <th width="12%" style="text-align: center;">Term</th>
+        <th width="18%" style="text-align: right;">Rate</th>
+        <th width="20%" style="text-align: right;">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <strong>Enterprise Dedicated Server Hosting & Firewall Protection</strong><br>
+          <span style="color: #64748b; font-size: 11px;">Primary node with 99.99% uptime guarantee and DDoS mitigation</span>
+        </td>
+        <td style="text-align: center;">1 Year</td>
+        <td style="text-align: right;">$#AMOUNT#</td>
+        <td style="text-align: right; font-weight: 600;">$#AMOUNT#</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>Dedicated Solution Architect & Escalation Manager</strong><br>
+          <span style="color: #64748b; font-size: 11px;">Priority hotline support channel: #TFN1#</span>
+        </td>
+        <td style="text-align: center;">1 Year</td>
+        <td style="text-align: right;">$0.00</td>
+        <td style="text-align: right; font-weight: 600;">INCLUDED</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>Automated Disaster Recovery & Failover Node</strong><br>
+          <span style="color: #64748b; font-size: 11px;">Secondary geographic zone standby</span>
+        </td>
+        <td style="text-align: center;">1 Year</td>
+        <td style="text-align: right;">$0.00</td>
+        <td style="text-align: right; font-weight: 600;">INCLUDED</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <table class="totals-table">
+    <tr>
+      <td style="color: #64748b;">Subtotal:</td>
+      <td style="text-align: right; font-weight: 600;">$#AMOUNT#</td>
+    </tr>
+    <tr>
+      <td style="color: #64748b;">Estimated Tax:</td>
+      <td style="text-align: right; font-weight: 600;">$0.00</td>
+    </tr>
+    <tr class="grand-row">
+      <td>Net Amount Paid:</td>
+      <td style="text-align: right;">$#AMOUNT#</td>
+    </tr>
+  </table>
+
+  <div class="notice-box">
+    <strong>Notice:</strong> This transaction is executed in accordance with our Master Services Agreement. Please see Page 2 for terms of service, cancellation policy, and hotline support details.
+  </div>
+
+  <div class="page-footer-note">
+    Page 1 of 2 &bull; Invoice Ref: #INVOICE# &bull; Generated for #NAME# on #DATE#
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- PAGE 2: TERMS OF SERVICE & SLA POLICIES    -->
+<!-- ========================================== -->
+<div class="page">
+  <table class="header-table" width="100%">
+    <tr>
+      <td width="60%">
+        <div class="company-name" style="font-size: 20px;">Horizon Enterprise Group</div>
+        <div style="font-size: 11px; color: #64748b;">Contract Annex & Terms of Service</div>
+      </td>
+      <td width="40%" align="right">
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a;">TERMS & CONDITIONS</div>
+        <div style="font-size: 10px; color: #94a3b8;">Page 2 of 2</div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="terms-heading">Master Terms and Service Level Agreement</div>
+
+  <div class="terms-section">
+    <div class="terms-title">1. Service Provisioning and Uptime Guarantee</div>
+    <div class="terms-body">
+      Horizon Enterprise Group guarantees a network and infrastructure availability uptime of 99.99% throughout the duration of this service contract. Routine scheduled maintenance will be communicated at least forty-eight (48) hours in advance via email notification to #EMAIL#.
+    </div>
+  </div>
+
+  <div class="terms-section">
+    <div class="terms-title">2. Billing, Payment, and Renewals</div>
+    <div class="terms-body">
+      Payment of $#AMOUNT# covers the designated service term beginning on #DATE#. Invoices are non-refundable after thirty (30) days from the initial transaction date #TXNID#. Automatic renewal will occur annually unless notice of cancellation is provided in writing thirty days prior to contract expiration.
+    </div>
+  </div>
+
+  <div class="terms-section">
+    <div class="terms-title">3. Customer Support & Escalation Procedures</div>
+    <div class="terms-body">
+      For all administrative, billing inquiries, or technical assistance, customer support representatives are available around the clock. Please contact our tier-1 helpdesk at toll-free <strong>#TFN1#</strong> or our alternate escalation desk at <strong>#TFN2#</strong>.
+    </div>
+  </div>
+
+  <div class="terms-section">
+    <div class="terms-title">4. Cancellation Policy & Dispute Resolution</div>
+    <div class="terms-body">
+      If you did not authorize this service charge or if you wish to dispute invoice #INVOICE#, you must contact our billing compliance desk within 48 hours of invoice receipt by calling <strong>#TFN1#</strong>. Disputes submitted within this timeframe are processed immediately without penalty.
+    </div>
+  </div>
+
+  <!-- Signature Block -->
+  <table class="signature-table">
+    <tr>
+      <td width="50%">
+        <div style="font-size: 11px; color: #64748b; margin-bottom: 20px;">Authorized Signature (Provider):</div>
+        <div style="font-family: Georgia, serif; font-size: 18px; color: #1e40af; font-style: italic;">Horizon Billing Operations</div>
+        <div style="font-size: 11px; color: #475569; margin-top: 4px;">Compliance & Billing Desk</div>
+      </td>
+      <td width="50%">
+        <div style="font-size: 11px; color: #64748b; margin-bottom: 20px;">Client Acknowledgment:</div>
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a;">#NAME#</div>
+        <div style="font-size: 11px; color: #475569; margin-top: 4px;">Acknowledged on #DATE# at #TIME#</div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="page-footer-note" style="margin-top: 25px;">
+    Page 2 of 2 &bull; End of Agreement &bull; Support: #TFN1# &bull; #EMAIL#
+  </div>
+</div>
+
+</body>
+</html>

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QMessageBox, QDialog, QDialogButtonBox,
     QSizePolicy, QComboBox
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont
 
 from backend.database import Database
@@ -158,6 +158,10 @@ class TaskPanel(QWidget):
         self.sent_count = 0
         self.fail_count = 0
         self.queue_count = 0
+        self._prev_rec_count = -1
+        self._rec_change_timer = QTimer(self)
+        self._rec_change_timer.setSingleShot(True)
+        self._rec_change_timer.timeout.connect(self._on_rec_timer_timeout)
 
         self.setStyleSheet(PANEL_BG + SHARED_SS)
         self._build_ui()
@@ -276,6 +280,45 @@ class TaskPanel(QWidget):
         lay = QVBoxLayout(inner)
         lay.setContentsMargins(14, 10, 14, 14)
         lay.setSpacing(10)
+
+        # Recipient Activity Log (above recipients)
+        g_rec_log = QGroupBox("📋 Recipient Activity Log")
+        rll = QVBoxLayout()
+        rll.setContentsMargins(10, 8, 10, 8)
+        rll.setSpacing(4)
+
+        self.txt_rec_log = QTextEdit()
+        self.txt_rec_log.setReadOnly(True)
+        self.txt_rec_log.setFont(QFont("Courier New", 10))
+        self.txt_rec_log.setFixedHeight(80)
+        self.txt_rec_log.setStyleSheet("""
+            QTextEdit {
+                background: #0d0e17; color: #00d4aa;
+                border: 1px solid #252637; border-radius: 5px; padding: 6px;
+            }
+        """)
+        self.txt_rec_log.setPlaceholderText("Recipient activity, additions, validations, and send logs appear here...")
+        rll.addWidget(self.txt_rec_log)
+
+        # Clear recipient log button
+        rec_log_foot = QHBoxLayout()
+        rec_log_foot.addStretch()
+        b_clr_rec_log = QPushButton("🗑 Clear Log")
+        b_clr_rec_log.setStyleSheet("""
+            QPushButton {
+                background: #3d3f52; color: #ffffff; border: none;
+                padding: 4px 12px; border-radius: 4px;
+                font-weight: 600; font-size: 11px;
+            }
+            QPushButton:hover { background: #52546e; }
+        """)
+        b_clr_rec_log.setFixedHeight(28)
+        b_clr_rec_log.clicked.connect(self.txt_rec_log.clear)
+        rec_log_foot.addWidget(b_clr_rec_log)
+        rll.addLayout(rec_log_foot)
+
+        g_rec_log.setLayout(rll)
+        lay.addWidget(g_rec_log)
 
         lbl_hint = QLabel("Paste emails below (one per line).  Format:  email  or  email,Name")
         lbl_hint.setStyleSheet("color:#7880a0; font-size:11px;")
@@ -406,7 +449,8 @@ class TaskPanel(QWidget):
         self.rb_amt_custom = QRadioButton("Custom (fixed)"); self.rb_amt_custom.setChecked(True)
         self.rb_amt_random = QRadioButton("Random in range")
         amr_row.addWidget(self.rb_amt_custom); amr_row.addWidget(self.rb_amt_random); amr_row.addStretch()
-        self.inp_amt_custom = QLineEdit("200.00"); self.inp_amt_custom.setPlaceholderText("e.g. 200.00")
+        self.inp_amt_custom = QLineEdit()
+        self.inp_amt_custom.setPlaceholderText("e.g. 200.00")
         self.spn_amt_min = QDoubleSpinBox(); self.spn_amt_min.setRange(0, 99999); self.spn_amt_min.setValue(100)
         self.spn_amt_max = QDoubleSpinBox(); self.spn_amt_max.setRange(0, 99999); self.spn_amt_max.setValue(300)
         aml.addRow("Mode:", amr_row)
@@ -451,25 +495,9 @@ class TaskPanel(QWidget):
         
         self.rb_inline_attach = QRadioButton("Inline+Attach")
         self.rb_inline_pdf = QRadioButton("Inline+PDF")
-        self.rb_text_inline = QRadioButton("Text+Inline")
         self.rb_text_only = QRadioButton("Text Only")
         self.rb_html_only = QRadioButton("HTML Only")
 
-
-        # self.rb_body_img = QRadioButton("HTML Body + Image")
-        # self.rb_body_pdf = QRadioButton("HTML Body + PDF")
-        # self.rb_body_img_pdf = QRadioButton("HTML Body + Image + PDF")
-
-        # self.rb_inline_attach = QRadioButton("Inline+Attach")
-        # self.rb_inline_pdf = QRadioButton("Inline+PDF")
-        # self.rb_text_inline = QRadioButton("Text+Inline")
-        # self.rb_text_only = QRadioButton("Text Only")
-        # self.rb_html_only = QRadioButton("HTML Only")
-
-
-
-
-        
         self.rb_html_only.setChecked(True)
         
         # Row 0
@@ -480,15 +508,14 @@ class TaskPanel(QWidget):
         # Row 1
         grid_mode.addWidget(self.rb_inline_attach, 1, 0)
         grid_mode.addWidget(self.rb_inline_pdf, 1, 1)
-        grid_mode.addWidget(self.rb_text_inline, 1, 2)
-        grid_mode.addWidget(self.rb_text_only, 1, 3)
-        grid_mode.addWidget(self.rb_html_only, 1, 4)
+        grid_mode.addWidget(self.rb_text_only, 1, 2)
+        grid_mode.addWidget(self.rb_html_only, 1, 3)
         
         lay.addWidget(g_mode)
 
         # Connect signals
         for rb in (self.rb_body_img, self.rb_body_pdf, self.rb_body_img_pdf,
-                   self.rb_inline_attach, self.rb_inline_pdf, self.rb_text_inline,
+                   self.rb_inline_attach, self.rb_inline_pdf,
                    self.rb_text_only, self.rb_html_only):
             rb.toggled.connect(self._update_content_visibility)
 
@@ -511,6 +538,25 @@ class TaskPanel(QWidget):
         quick_row.addWidget(b_add_subj)
         sl.addLayout(quick_row)
 
+        # Bulk subject actions bar
+        bulk_row = QHBoxLayout()
+        b_sub_csv   = QPushButton("📂 Load CSV/Excel"); b_sub_csv.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_sub_paste = QPushButton("📋 Paste Subjects"); b_sub_paste.setStyleSheet(BTN("#4752c4", "#3a47a0"))
+        b_sub_clear = QPushButton("🗑 Clear");          b_sub_clear.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_sub_csv.clicked.connect(self._load_subjects_csv)
+        b_sub_paste.clicked.connect(self._paste_bulk_subjects)
+        b_sub_clear.clicked.connect(self._clear_subjects)
+
+        self.lbl_subj_count = QLabel("0 subjects loaded")
+        self.lbl_subj_count.setStyleSheet("color:#43b581; font-size:11px; font-weight:600;")
+
+        bulk_row.addWidget(b_sub_csv)
+        bulk_row.addWidget(b_sub_paste)
+        bulk_row.addWidget(b_sub_clear)
+        bulk_row.addStretch()
+        bulk_row.addWidget(self.lbl_subj_count)
+        sl.addLayout(bulk_row)
+
         sl.addWidget(QLabel("Bulk subjects (one per line — all will rotate):"  ))
         self.txt_subjects = QTextEdit()
         self.txt_subjects.setPlaceholderText(
@@ -519,6 +565,7 @@ class TaskPanel(QWidget):
             "Important notice for #NAME# — Action required by #DATE#\n"
             "Transaction #TXNID# confirmed — Contact us at #TFN1#")
         self.txt_subjects.setFixedHeight(90)
+        self.txt_subjects.textChanged.connect(self._on_subjects_changed)
         sl.addWidget(self.txt_subjects)
         g_sub.setLayout(sl); lay.addWidget(g_sub)
 
@@ -534,18 +581,21 @@ class TaskPanel(QWidget):
         snl.addWidget(self.txt_senders)
         g_snd.setLayout(snl); lay.addWidget(g_snd)
 
-        # Body Content Type selection (HTML Template vs Plain Text)
+        # Body Content Type selection (HTML Template vs Plain Text vs Paste Code/HTML)
         self.g_body_type = QGroupBox("Body Content Format")
         bt_lay = QHBoxLayout(self.g_body_type)
         self.rb_content_html = QRadioButton("HTML Template (default)")
         self.rb_content_text = QRadioButton("Plain Text")
+        self.rb_content_code = QRadioButton("Paste Code / HTML")
         self.rb_content_html.setChecked(True)
         bt_lay.addWidget(self.rb_content_html)
         bt_lay.addWidget(self.rb_content_text)
+        bt_lay.addWidget(self.rb_content_code)
         bt_lay.addStretch()
         lay.addWidget(self.g_body_type)
         self.rb_content_html.toggled.connect(self._update_content_visibility)
         self.rb_content_text.toggled.connect(self._update_content_visibility)
+        self.rb_content_code.toggled.connect(self._update_content_visibility)
 
         # Body plain text
         self.g_txt = QGroupBox("Body Text  (plain text / fallback if no HTML)")
@@ -588,7 +638,7 @@ class TaskPanel(QWidget):
         tl.addWidget(self.txt_body_plain)
         self.g_txt.setLayout(tl); lay.addWidget(self.g_txt)
 
-        # HTML templates (Email Body)
+        # HTML templates (Email Body - file upload)
         self.g_html = QGroupBox("Email Body — HTML Templates  (multiple files = rotation  +  base64 inline images)")
         hl = QVBoxLayout()
         hl.addWidget(QLabel("💡 Upload HTML file(s) for the Email Body — images inside <img src='…'> auto-embedded as base64."))
@@ -607,6 +657,42 @@ class TaskPanel(QWidget):
         hl.addWidget(self.chk_inline_b64)
         self.g_html.setLayout(hl); lay.addWidget(self.g_html)
 
+        # Paste Code / HTML widget
+        self.g_code = QGroupBox("Email Body — Paste Code / HTML  (direct HTML code / base64 inline images)")
+        cl = QVBoxLayout()
+        code_hint = QLabel("💡 Paste your HTML code or template text below — tags like #NAME#, #AMOUNT#, #INVOICE#, #TFN1# auto-replaced.")
+        code_hint.setStyleSheet("color:#7880a0; font-size:11px;")
+        cl.addWidget(code_hint)
+
+        c_bar = QHBoxLayout()
+        b_clr_code = QPushButton("Clear"); b_clr_code.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_clr_code.clicked.connect(lambda: self.txt_body_code.clear())
+        c_bar.addWidget(b_clr_code); c_bar.addStretch()
+        cl.addLayout(c_bar)
+
+        self.txt_body_code = QTextEdit()
+        self.txt_body_code.setFont(QFont("Courier New", 11))
+        self.txt_body_code.setPlaceholderText(
+            "<!DOCTYPE html>\n"
+            "<html>\n"
+            "<head><meta charset=\"utf-8\"></head>\n"
+            "<body style=\"font-family: Arial, sans-serif; padding: 20px;\">\n"
+            "  <h2>Hello #NAME#,</h2>\n"
+            "  <p>Your payment of $#AMOUNT# has been received on #DATE#.</p>\n"
+            "  <p>Invoice: #INVOICE# | Order: #ORDERID# | Transaction: #TXNID#</p>\n"
+            "  <p>Support: #TFN1#</p>\n"
+            "</body>\n"
+            "</html>"
+        )
+        self.txt_body_code.setFixedHeight(200)
+        cl.addWidget(self.txt_body_code)
+
+        self.chk_code_inline_b64 = QCheckBox("Convert local image paths in HTML to base64 inline")
+        self.chk_code_inline_b64.setChecked(True)
+        cl.addWidget(self.chk_code_inline_b64)
+
+        self.g_code.setLayout(cl); lay.addWidget(self.g_code)
+
         # Attachments
         self.g_att = QGroupBox("Attachments  (personalised filename = email-prefix + 4 random digits)")
         al = QVBoxLayout()
@@ -616,6 +702,10 @@ class TaskPanel(QWidget):
         self.wdg_img_att.setStyleSheet("background:transparent;")
         img_lay = QVBoxLayout(self.wdg_img_att)
         img_lay.setContentsMargins(0, 0, 0, 0)
+
+        img_lbl = QLabel("Image Attachment  (Upload HTML Template to convert to Image, OR upload image file):")
+        img_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
+        img_lay.addWidget(img_lbl)
 
         fmt_row = QHBoxLayout()
         fmt_lbl = QLabel("Image Format:")
@@ -630,12 +720,13 @@ class TaskPanel(QWidget):
         img_lay.addLayout(fmt_row)
 
         ir = QHBoxLayout()
-        b_add_i = QPushButton("+ Image Attachments  (PNG/JPG/JPEG/GIF → base64)")
-        b_add_i.setStyleSheet(BTN("#43b581", "#369e6b"))
+        b_add_i_html = QPushButton("+ Add HTML for Image (.html)"); b_add_i_html.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_add_i_html.clicked.connect(self._add_img_html)
+        b_add_i = QPushButton("+ Add Image File (PNG/JPG/JPEG/GIF)"); b_add_i.setStyleSheet(BTN("#43b581", "#369e6b"))
         b_add_i.clicked.connect(self._add_img_att)
         b_clr_i = QPushButton("Clear"); b_clr_i.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_i.clicked.connect(lambda: self.img_att_list.clear())
-        ir.addWidget(b_add_i); ir.addWidget(b_clr_i); ir.addStretch()
+        ir.addWidget(b_add_i_html); ir.addWidget(b_add_i); ir.addWidget(b_clr_i); ir.addStretch()
         img_lay.addLayout(ir)
         self.img_att_list = QListWidget(); self.img_att_list.setFixedHeight(70)
         self.img_att_list.itemDoubleClicked.connect(lambda item: self.img_att_list.takeItem(self.img_att_list.row(item)))
@@ -648,7 +739,7 @@ class TaskPanel(QWidget):
         pdf_lay = QVBoxLayout(self.wdg_pdf_att)
         pdf_lay.setContentsMargins(0, 0, 0, 0)
         
-        pdf_lbl = QLabel("PDF Attachment  (Upload HTML Template to convert to PDF, OR upload .pdf file):")
+        pdf_lbl = QLabel("PDF Attachment  (Upload HTML Template to convert to PDF — A4/A1 formats & exact 1-to-1 page count strictly preserved, OR upload .pdf):")
         pdf_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
         pdf_lay.addWidget(pdf_lbl)
 
@@ -765,53 +856,170 @@ class TaskPanel(QWidget):
 
         hdr_row = QHBoxLayout()
         hdr = QLabel(f"▼ Task {self.task_id} Log")
+        hdr.setFixedHeight(30)
+        hdr.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         hdr.setStyleSheet(
-            "color:#7880a0; font-size:11px; font-weight:700; "
-            "padding:4px; background:#0d0e17; border-radius:3px;")
-        b_clr_top = QPushButton("🗑 Clear Log")
-        b_clr_top.setStyleSheet(BTN("#252637", "#3d3f52"))
-        b_clr_top.setFixedHeight(24)
-        b_clr_top.clicked.connect(self.log_box.clear)
-        hdr_row.addWidget(hdr, 1)
-        hdr_row.addWidget(b_clr_top)
+            "color:#7880a0; font-size:12px; font-weight:700; "
+            "padding:4px 8px; background:#0d0e17; border-radius:3px;")
+        hdr_row.addWidget(hdr)
         lay.addLayout(hdr_row)
         lay.addWidget(self.log_box, 1)
 
         foot_row = QHBoxLayout()
         self.lbl_current_smtp = QLabel("SMTP: –")
+        self.lbl_current_smtp.setFixedHeight(30)
+        self.lbl_current_smtp.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         self.lbl_current_smtp.setStyleSheet("color:#5865f2; font-size:11px;")
-        b_clr = QPushButton("Clear Log"); b_clr.setStyleSheet(BTN("#3d3f52", "#52546e"))
-        b_clr.setFixedHeight(28)
+
+        b_dl_foot = QPushButton("📥 Download Log")
+        b_dl_foot.setStyleSheet("""
+            QPushButton {
+                background: #5865f2; color: #ffffff; border: none;
+                padding: 4px 14px; border-radius: 5px;
+                font-weight: 600; font-size: 12px;
+            }
+            QPushButton:hover { background: #4752c4; }
+        """)
+        b_dl_foot.setFixedHeight(30)
+        b_dl_foot.clicked.connect(self._download_log)
+
+        b_clr = QPushButton("🗑 Clear Log")
+        b_clr.setStyleSheet("""
+            QPushButton {
+                background: #3d3f52; color: #ffffff; border: none;
+                padding: 4px 14px; border-radius: 5px;
+                font-weight: 600; font-size: 12px;
+            }
+            QPushButton:hover { background: #52546e; }
+        """)
+        b_clr.setFixedHeight(30)
         b_clr.clicked.connect(self.log_box.clear)
+
         foot_row.addWidget(self.lbl_current_smtp, 1)
+        foot_row.addWidget(b_dl_foot)
         foot_row.addWidget(b_clr)
         lay.addLayout(foot_row)
         return w
 
+    def _download_log(self):
+        """Export all logs from this task's log box to a file (TXT, LOG, or CSV)."""
+        log_text = self.log_box.toPlainText()
+        if not log_text.strip():
+            QMessageBox.information(
+                self, "Download Log",
+                f"Task {self.task_id} log is currently empty.\nRun a campaign or send test emails to generate logs."
+            )
+            return
+
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_filename = f"task_{self.task_id}_log_{now_str}.txt"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Save Task {self.task_id} Log",
+            default_filename,
+            "Text Files (*.txt);;Log Files (*.log);;CSV Spreadsheet (*.csv);;All Files (*.*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            if file_path.lower().endswith(".csv"):
+                with open(file_path, "w", encoding="utf-8", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["Timestamp", "Task", "Log Entry"])
+                    for line in log_text.splitlines():
+                        if not line.strip():
+                            continue
+                        ts = ""
+                        entry = line
+                        if line.startswith("[") and "]" in line:
+                            idx = line.index("]")
+                            ts = line[1:idx].strip()
+                            entry = line[idx + 1:].strip()
+                        writer.writerow([ts, f"Task {self.task_id}", entry])
+            else:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(log_text)
+
+            self._log(f"💾 Log downloaded to: {Path(file_path).name}")
+            QMessageBox.information(
+                self,
+                "Log Downloaded",
+                f"Task {self.task_id} log has been successfully saved to:\n{file_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"Failed to save log file:\n{str(e)}"
+            )
+
     # ── Recipients helpers ────────────────────────────────────────────────────
     def _on_recipients_changed(self):
-        lines = [l.strip() for l in self.txt_recipients.toPlainText().split('\n') if l.strip()]
-        valid = [l for l in lines if '@' in l]
-        self.lbl_rec_count.setText(f"{len(valid)} recipients loaded")
+        import re
+        raw_text = self.txt_recipients.toPlainText()
+        lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+        # Check actual valid email addresses (user@domain.ext)
+        valid = [l for l in lines if re.search(r'[\w\.\+\-]+@[\w\.\-]+\.[a-zA-Z]{2,}', l)]
+        count = len(valid)
+        self.lbl_rec_count.setText(f"{count} recipients loaded")
         pfx = f"task_{self.task_id}_"
-        self.db.set_setting(pfx + "recipients", self.txt_recipients.toPlainText())
+        self.db.set_setting(pfx + "recipients", raw_text)
+
+        # Restart debounce timer on every keystroke so it only logs when user finishes typing
+        if hasattr(self, '_rec_change_timer'):
+            self._rec_change_timer.start(800)
+
+    def _on_rec_timer_timeout(self):
+        import re
+        raw_text = self.txt_recipients.toPlainText()
+        lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+        valid_matches = []
+        for l in lines:
+            m = re.search(r'[\w\.\+\-]+@[\w\.\-]+\.[a-zA-Z]{2,}', l)
+            if m:
+                valid_matches.append(m.group(0))
+
+        count = len(valid_matches)
+        if count == 0:
+            return
+
+        # Deduplicate: don't re-log if the valid recipients list hasn't changed
+        summary = f"{count}:" + ",".join(valid_matches[:5])
+        if summary == getattr(self, '_last_logged_rec_summary', None):
+            return
+        self._last_logged_rec_summary = summary
+
+        if count <= 2:
+            sample_emails = ", ".join(valid_matches[:2])
+            self._log(f"👥 {count} recipient(s) loaded: {sample_emails}")
+        else:
+            self._log(f"👥 {count} recipient(s) loaded in editor")
 
     def _clear_recipients(self):
+        if hasattr(self, '_rec_change_timer'):
+            self._rec_change_timer.stop()
+        self._last_logged_rec_summary = None
         self.txt_recipients.clear()
         self.lbl_rec_count.setText("0 recipients loaded")
         self.db.clear_recipients()
         pfx = f"task_{self.task_id}_"
         self.db.set_setting(pfx + "recipients", "")
+        self._prev_rec_count = 0
         self._log("🗑 Recipients cleared from list and database pool")
 
     def _validate_recipients(self):
         lines = [l.strip() for l in self.txt_recipients.toPlainText().split('\n') if l.strip()]
         valid = [l for l in lines if '@' in l]
         invalid = len(lines) - len(valid)
-        self.lbl_valid.setText(f"✅ {len(valid)} valid  |  ❌ {invalid} invalid")
+        status_txt = f"✅ {len(valid)} valid  |  ❌ {invalid} invalid"
+        self.lbl_valid.setText(status_txt)
         self.lbl_valid.setStyleSheet(
             "color:#43b581; font-size:11px; font-weight:600;" if not invalid
             else "color:#f0a500; font-size:11px; font-weight:600;")
+        self._log(f"✔ Recipient validation: {len(valid)} valid  |  {invalid} invalid")
 
     def _load_recipients_csv(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -828,7 +1036,7 @@ class TaskPanel(QWidget):
         current = self.txt_recipients.toPlainText().strip()
         combined = (current + "\n" + "\n".join(lines)).strip() if current else "\n".join(lines)
         self.txt_recipients.setPlainText(combined)
-        self._log(f"📂 Loaded {len(lines)} recipients from file")
+        self._log(f"📂 Loaded {len(lines)} recipients from file: {Path(path).name}")
 
     def _open_paste_email_dialog(self):
         """Open a proper paste dialog for emails — FIXED version."""
@@ -1006,6 +1214,43 @@ class TaskPanel(QWidget):
                 + "\n\nPlease keep HTML body templates below 100KB."
             )
 
+    def _add_img_html(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select HTML Template for Image Attachment", "", "HTML Templates (*.html *.htm)"
+        )
+        if not files:
+            return
+
+        max_bytes = 100 * 1024
+        rejected = []
+        accepted = []
+
+        for f in files:
+            try:
+                size = Path(f).stat().st_size
+            except Exception:
+                size = 0
+
+            if size > max_bytes:
+                rejected.append(f"{Path(f).name} ({size // 1024} KB)")
+                continue
+
+            accepted.append(f)
+
+        if accepted:
+            self.img_att_list.clear()
+            for f in accepted:
+                self.img_att_list.addItem(f)
+
+        if rejected:
+            QMessageBox.warning(
+                self,
+                "Template too large",
+                "These HTML templates are over 100KB and were NOT added:\n\n"
+                + "\n".join(rejected)
+                + "\n\nPlease ensure HTML templates are below 100KB."
+            )
+
     def _add_img_att(self):
         fmt_filter_map = {
             "PNG":  "PNG Images (*.png)",
@@ -1017,8 +1262,11 @@ class TaskPanel(QWidget):
         filter_str = fmt_filter_map.get(selected_fmt, "Images (*.png *.jpg *.jpeg *.gif)")
         files, _ = QFileDialog.getOpenFileNames(
             self, f"Select {selected_fmt} Images", "", filter_str)
+        if not files:
+            return
         max_bytes = 100 * 1024
         rejected = []
+        accepted = []
         for f in files:
             try:
                 size = Path(f).stat().st_size
@@ -1027,6 +1275,10 @@ class TaskPanel(QWidget):
             if size > max_bytes:
                 rejected.append(f"{Path(f).name} ({size // 1024} KB)")
             else:
+                accepted.append(f)
+        if accepted:
+            self.img_att_list.clear()
+            for f in accepted:
                 self.img_att_list.addItem(f)
         if rejected:
             QMessageBox.warning(
@@ -1164,8 +1416,85 @@ class TaskPanel(QWidget):
             added += 1
         return added
 
+    @staticmethod
+    def _format_text_for_email(text: str) -> str:
+        """
+        Converts plain text or code to email-compliant HTML that preserves exact
+        formatting, paragraph breaks, and line breaks across all email clients
+        (Gmail, Outlook, Yahoo, Apple Mail, Web & Mobile).
+        """
+        if not text:
+            return ""
+
+        tb_s = text.strip()
+        is_raw_html = (
+            tb_s.startswith((
+                "<html", "<!doctype", "<!DOCTYPE", "<table", "<div", "<p", "<?xml",
+                "<body", "<!--", "<style", "<center", "<span", "<section", "<header",
+                "<main", "<article", "<form", "<ul", "<ol", "<h1", "<h2", "<h3"
+            ))
+            or ("<html" in tb_s.lower() and "</html>" in tb_s.lower())
+            or ("<body" in tb_s.lower() and "</body>" in tb_s.lower())
+            or ("</div>" in tb_s.lower())
+            or ("</table>" in tb_s.lower())
+        )
+
+        if is_raw_html:
+            return text
+
+        # Normalize line endings
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not normalized:
+            return ""
+
+        # Split by double newlines into paragraphs
+        raw_paragraphs = normalized.split("\n\n")
+        html_paragraphs = []
+
+        for para in raw_paragraphs:
+            para_stripped = para.strip("\n")
+            if not para_stripped:
+                # Extra blank line preserved as vertical spacing
+                html_paragraphs.append('<div style="height: 14px; line-height: 14px;">&nbsp;</div>')
+                continue
+            lines = para_stripped.split("\n")
+            formatted_lines = []
+            for line in lines:
+                leading_spaces = len(line) - len(line.lstrip(" "))
+                prefix = "&nbsp;" * leading_spaces if leading_spaces > 0 else ""
+                formatted_lines.append(prefix + line.lstrip(" "))
+            para_content = "<br>\n".join(formatted_lines)
+            html_paragraphs.append(
+                f'<p style="margin: 0 0 14px 0; font-family: Arial, Helvetica, sans-serif; '
+                f'font-size: 14px; color: #222222; line-height: 1.6;">\n{para_content}\n</p>'
+            )
+
+        if not html_paragraphs:
+            return ""
+
+        joined_paragraphs = "\n".join(html_paragraphs)
+        return (
+            f'<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; '
+            f'color: #222222; line-height: 1.6; margin: 0; padding: 0;">\n'
+            f'{joined_paragraphs}\n'
+            f'</div>'
+        )
+
     def _get_html_templates(self):
         templates = []
+        if self.rb_content_code.isChecked():
+            code = self.txt_body_code.toPlainText().strip()
+            if code:
+                code = self._format_text_for_email(code)
+                if getattr(self, 'chk_code_inline_b64', None) and self.chk_code_inline_b64.isChecked():
+                    try:
+                        from backend.template_manager import TemplateManager
+                        code = TemplateManager().process_html_inline_images(code, "")
+                    except Exception:
+                        pass
+                templates.append(code)
+            return templates
+
         for i in range(self.html_list.count()):
             fpath = self.html_list.item(i).text()
             try:
@@ -1179,10 +1508,15 @@ class TaskPanel(QWidget):
         if not templates:
             plain = self.txt_body_plain.toPlainText().strip()
             if plain:
-                templates = [f"<p>{plain.replace(chr(10), '<br>')}</p>"]
+                templates = [self._format_text_for_email(plain)]
         return templates
 
-    # ── Quick-Add single subject helper ────────────────────────────────────────
+    # ── Subject line helpers ──────────────────────────────────────────────────
+    def _on_subjects_changed(self):
+        lines = [l.strip() for l in self.txt_subjects.toPlainText().split('\n') if l.strip()]
+        if hasattr(self, 'lbl_subj_count'):
+            self.lbl_subj_count.setText(f"{len(lines)} subject(s) loaded")
+
     def _add_quick_subject(self):
         line = self.inp_quick_subject.text().strip()
         if not line:
@@ -1194,6 +1528,56 @@ class TaskPanel(QWidget):
             self.txt_subjects.setPlainText(line)
         self.inp_quick_subject.clear()
         self._log(f"📝 Quick-added subject: {line[:50]}")
+
+    def _load_subjects_csv(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Subjects CSV/Excel", "", "CSV/Excel (*.csv *.xlsx *.xls)"
+        )
+        if not path:
+            return
+        rows = self._read_csv_or_excel(path)
+        lines = []
+        for idx, row in enumerate(rows):
+            if not row:
+                continue
+            subj = str(row[0]).strip()
+            # If the first row looks like a header, skip it
+            if idx == 0 and subj.lower() in ("subject", "subjects", "subject line", "subject lines", "subject_line") and len(rows) > 1:
+                continue
+            if subj:
+                lines.append(subj)
+
+        if not lines:
+            QMessageBox.information(self, "No Subjects", "No valid subject lines found in the selected file.")
+            return
+
+        current = self.txt_subjects.toPlainText().strip()
+        combined = (current + "\n" + "\n".join(lines)).strip() if current else "\n".join(lines)
+        self.txt_subjects.setPlainText(combined)
+        self._log(f"📂 Loaded {len(lines)} subject lines from file: {Path(path).name}")
+
+    def _paste_bulk_subjects(self):
+        dlg = PasteDialog(
+            "Paste Bulk Subject Lines",
+            "Paste subject lines below (one per line — all will rotate):\n"
+            "Tags like #NAME#, #INVOICE#, #AMOUNT#, #DATE# are supported.",
+            self
+        )
+        if dlg.exec() == QDialog.Accepted:
+            pasted = dlg.get_text().strip()
+            if not pasted:
+                return
+            lines = [l.strip() for l in pasted.split('\n') if l.strip()]
+            if not lines:
+                return
+            current = self.txt_subjects.toPlainText().strip()
+            combined = (current + "\n" + "\n".join(lines)).strip() if current else "\n".join(lines)
+            self.txt_subjects.setPlainText(combined)
+            self._log(f"📋 Pasted {len(lines)} subject lines")
+
+    def _clear_subjects(self):
+        self.txt_subjects.clear()
+        self._log("🗑 Subject lines cleared")
 
     # ── Persistent Settings (survive SMTP/Data clear + app restart) ──────────
     def _save_settings(self):
@@ -1221,6 +1605,7 @@ class TaskPanel(QWidget):
         s(pfx + "senders", self.txt_senders.toPlainText())
         s(pfx + "default_sender", "1" if self.chk_default_sender.isChecked() else "0")
         s(pfx + "body_plain", self.txt_body_plain.toPlainText())
+        s(pfx + "body_code", self.txt_body_code.toPlainText())
         s(pfx + "inline_b64", "1" if self.chk_inline_b64.isChecked() else "0")
         s(pfx + "img_format", self.cmb_img_format.currentText())
 
@@ -1231,8 +1616,6 @@ class TaskPanel(QWidget):
             bm = "inline_img"
         elif self.rb_inline_pdf.isChecked():
             bm = "inline_pdf"
-        elif self.rb_text_inline.isChecked():
-            bm = "text_inline"
         elif self.rb_body_pdf.isChecked():
             bm = "body_pdf"
         elif self.rb_body_img_pdf.isChecked():
@@ -1242,12 +1625,14 @@ class TaskPanel(QWidget):
         else:
             bm = "html"
         s(pfx + "body_mode", bm)
-        if self.rb_text_only.isChecked() or self.rb_text_inline.isChecked():
+        if self.rb_text_only.isChecked():
             bct = "text"
-        elif self.rb_html_only.isChecked() or self.rb_body_img_pdf.isChecked() or self.rb_inline_attach.isChecked():
-            bct = "html"
+        elif self.rb_content_code.isChecked():
+            bct = "code"
+        elif self.rb_content_text.isChecked():
+            bct = "text"
         else:
-            bct = "text" if self.rb_content_text.isChecked() else "html"
+            bct = "html"
         s(pfx + "body_content_type", bct)
 
         # HTML file paths
@@ -1301,6 +1686,7 @@ class TaskPanel(QWidget):
         v = g(pfx + "senders");    self.txt_senders.setPlainText(v) if v else None
         v = g(pfx + "default_sender"); self.chk_default_sender.setChecked(v != "0") if v else None
         v = g(pfx + "body_plain"); self.txt_body_plain.setPlainText(v) if v else None
+        v = g(pfx + "body_code");  self.txt_body_code.setPlainText(v) if v else None
         v = g(pfx + "inline_b64"); self.chk_inline_b64.setChecked(v != "0") if v else None
         v = g(pfx + "img_format")
         if v: self.cmb_img_format.setCurrentText(v)
@@ -1309,7 +1695,7 @@ class TaskPanel(QWidget):
         v = g(pfx + "body_mode")
         # Block signals temporarily to prevent trigger loops during config load
         for rb in (self.rb_body_img, self.rb_body_pdf, self.rb_body_img_pdf,
-                   self.rb_inline_attach, self.rb_inline_pdf, self.rb_text_inline,
+                   self.rb_inline_attach, self.rb_inline_pdf,
                    self.rb_text_only, self.rb_html_only):
             rb.blockSignals(True)
             
@@ -1320,7 +1706,8 @@ class TaskPanel(QWidget):
         elif v == "inline_pdf":
             self.rb_inline_pdf.setChecked(True)
         elif v == "text_inline":
-            self.rb_text_inline.setChecked(True)
+            self.rb_body_img.setChecked(True)
+            self.rb_content_text.setChecked(True)
         elif v == "body_pdf":
             self.rb_body_pdf.setChecked(True)
         elif v == "body_img_pdf":
@@ -1333,19 +1720,23 @@ class TaskPanel(QWidget):
             self.rb_html_only.setChecked(True)
             
         for rb in (self.rb_body_img, self.rb_body_pdf, self.rb_body_img_pdf,
-                   self.rb_inline_attach, self.rb_inline_pdf, self.rb_text_inline,
+                   self.rb_inline_attach, self.rb_inline_pdf,
                    self.rb_text_only, self.rb_html_only):
             rb.blockSignals(False)
             
         bct = g(pfx + "body_content_type", "html")
         self.rb_content_html.blockSignals(True)
         self.rb_content_text.blockSignals(True)
+        self.rb_content_code.blockSignals(True)
         if bct == "text":
             self.rb_content_text.setChecked(True)
+        elif bct == "code":
+            self.rb_content_code.setChecked(True)
         else:
             self.rb_content_html.setChecked(True)
         self.rb_content_html.blockSignals(False)
         self.rb_content_text.blockSignals(False)
+        self.rb_content_code.blockSignals(False)
 
         self._update_content_visibility()
 
@@ -1386,6 +1777,7 @@ class TaskPanel(QWidget):
         v = g(pfx + "auto_remove"); self.chk_auto_remove.setChecked(v != "0") if v else None
         v = g(pfx + "bounce_pct")
         if v: self.spn_bounce.setValue(int(v))
+        self._on_subjects_changed()
 
     # ── Task execution ────────────────────────────────────────────────────────
     def start_task(self):
@@ -1417,8 +1809,6 @@ class TaskPanel(QWidget):
             body_mode = "inline_img"
         elif self.rb_inline_pdf.isChecked():
             body_mode = "inline_pdf"
-        elif self.rb_text_inline.isChecked():
-            body_mode = "text_inline"
         elif self.rb_body_pdf.isChecked():
             body_mode = "body_pdf"
         elif self.rb_body_img_pdf.isChecked():
@@ -1426,17 +1816,26 @@ class TaskPanel(QWidget):
         elif self.rb_body_img.isChecked():
             body_mode = "body_img"
 
-        # Determine body content format (html vs text)
-        body_content_type = "text" if self.rb_content_text.isChecked() else "html"
-        if self.rb_text_only.isChecked() or self.rb_text_inline.isChecked():
+        # Determine body content format (html vs text vs code)
+        if self.rb_text_only.isChecked() or self.rb_content_text.isChecked():
             body_content_type = "text"
-        elif self.rb_html_only.isChecked() or self.rb_body_img_pdf.isChecked() or self.rb_inline_attach.isChecked():
+        elif self.rb_content_code.isChecked():
+            body_content_type = "code"
+        else:
             body_content_type = "html"
 
         # Isolate mode data: only include attachments/templates relevant to the selected body_mode
         img_paths = []
         if body_mode in ("body_img", "text_inline"):
-            img_paths = [self.img_att_list.item(i).text() for i in range(self.img_att_list.count())]
+            raw_img_items = [self.img_att_list.item(i).text() for i in range(self.img_att_list.count())]
+            direct_imgs = [p for p in raw_img_items if Path(p).suffix.lower() not in ('.html', '.htm')]
+            html_imgs = [p for p in raw_img_items if Path(p).suffix.lower() in ('.html', '.htm')]
+            if direct_imgs:
+                img_paths = direct_imgs
+            elif html_imgs:
+                img_paths = html_imgs
+            else:
+                img_paths = []
 
         pdf_paths = []
         if body_mode in ("body_pdf", "body_img_pdf", "inline_pdf"):
@@ -1451,12 +1850,25 @@ class TaskPanel(QWidget):
                 pdf_paths = []
 
         templates = []
-        if body_content_type == "html" and body_mode not in ("text", "text_inline"):
-            templates = self._get_html_templates()
-
         body_plain = ""
+
         if body_content_type == "text" or body_mode in ("text", "text_inline"):
-            body_plain = self.txt_body_plain.toPlainText()
+            formatted_text = self._format_text_for_email(self.txt_body_plain.toPlainText())
+            body_plain = formatted_text
+            templates = [formatted_text] if formatted_text else []
+        elif body_content_type == "code":
+            formatted_code = self._format_text_for_email(self.txt_body_code.toPlainText())
+            body_plain = formatted_code
+            templates = self._get_html_templates()
+            if not templates and formatted_code:
+                templates = [formatted_code]
+        else:
+            # HTML Template mode
+            templates = self._get_html_templates()
+            formatted_text = self._format_text_for_email(self.txt_body_plain.toPlainText())
+            body_plain = formatted_text
+            if not templates and formatted_text:
+                templates = [formatted_text]
 
         config = {
             "templates":          templates,
@@ -1526,64 +1938,248 @@ class TaskPanel(QWidget):
         self.lbl_status.setText(t)
         self.lbl_status.setStyleSheet(f"color:{c}; font-size:12px; font-weight:700; padding:0 12px;")
 
+    def _is_recipient_log(self, msg: str) -> bool:
+        """Return True only if msg is strictly relevant to recipients."""
+        lower = msg.lower()
+        # Strictly exclude internal base64 debug, smtp auth/linking, general task startup, and subjects
+        if any(ex in lower for ex in (
+            "base64",
+            "auth error",
+            "microsoft account",
+            "starting |",
+            "exhausted",
+            "downloaded to",
+            "smtp",
+            "switch",
+            "subject",
+        )):
+            return False
+
+        # Include specific recipient events
+        if any(kw in lower for kw in (
+            "recipient(s) loaded",
+            "recipients loaded",
+            "recipients added to pool",
+            "recipients from file",
+            "email rows",
+            "recipient validation",
+            "recipients cleared",
+            "unsubscribed",
+            "fallback",
+        )):
+            return True
+
+        # Include per-recipient delivery statuses (OK ->, FAIL ->, 📧 ->)
+        if " -> " in msg or " → " in msg:
+            if any(marker in msg for marker in ("OK", "FAIL", "📧", "Skipping")):
+                return True
+
+        return False
+
     def _log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
-        self.log_box.append(f"[{ts}] {msg}")
+        entry = f"[{ts}] {msg}"
+        self.log_box.append(entry)
         sb = self.log_box.verticalScrollBar()
         sb.setValue(sb.maximum())
         self.activity_logged.emit(self.task_id, msg)
+
+        # Mirror recipient-related entries strictly to the Recipient Log box above recipients
+        if hasattr(self, 'txt_rec_log') and self._is_recipient_log(msg):
+            self.txt_rec_log.append(entry)
+            sb2 = self.txt_rec_log.verticalScrollBar()
+            sb2.setValue(sb2.maximum())
             
     def _update_content_visibility(self):
         show_html = False
         show_txt = False
+        show_code = False
         show_img_att = False
         show_pdf_att = False
         show_body_type = False
-        
-        # Check if the current mode supports choosing between HTML and Plain Text
-        supports_body_type = (
-            self.rb_body_img.isChecked() or
-            self.rb_body_pdf.isChecked() or
-            self.rb_inline_pdf.isChecked()
-        )
-        
-        if supports_body_type:
+
+        if self.rb_text_only.isChecked():
+            show_body_type = False
+            show_txt = True
+        else:
             show_body_type = True
-            is_html = self.rb_content_html.isChecked()
-            show_html = is_html
-            show_txt = not is_html
-            
+            if self.rb_content_html.isChecked():
+                show_html = True
+            elif self.rb_content_code.isChecked():
+                show_code = True
+            elif self.rb_content_text.isChecked():
+                show_txt = True
+            else:
+                show_html = True
+
             if self.rb_body_img.isChecked():
                 show_img_att = True
-            elif self.rb_body_pdf.isChecked():
-                show_pdf_att = True
-            elif self.rb_inline_pdf.isChecked():
-                show_img_att = False
+            elif self.rb_body_pdf.isChecked() or self.rb_body_img_pdf.isChecked() or self.rb_inline_pdf.isChecked():
                 show_pdf_att = True
 
-        elif self.rb_body_img_pdf.isChecked():
-            show_body_type = False
-            show_html = True
-            show_txt = False
-            show_img_att = False
-            show_pdf_att = True
-        elif self.rb_inline_attach.isChecked():
-            show_body_type = False
-            show_html = True
-            show_txt = False
-            show_img_att = False
-            show_pdf_att = False
-        elif self.rb_text_inline.isChecked():
-            show_txt = True
-            show_img_att = True
-        elif self.rb_html_only.isChecked():
-            show_html = True
-        elif self.rb_text_only.isChecked():
-            show_txt = True
-            
         self.g_body_type.setVisible(show_body_type)
         self.g_html.setVisible(show_html)
         self.g_txt.setVisible(show_txt)
+        self.g_code.setVisible(show_code)
         self.wdg_img_att.setVisible(show_img_att)
         self.wdg_pdf_att.setVisible(show_pdf_att)
         self.g_att.setVisible(show_img_att or show_pdf_att)
+
+    def reset_task_data(self):
+        """Completely reset all UI fields, counters, and inputs to a fresh initial state."""
+        # Stop worker if active
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+        self.worker = None
+
+        # Reset counters & status
+        self.sent_count = 0
+        self.fail_count = 0
+        self.queue_count = 0
+        self.enabled = True
+        if hasattr(self, 'chk_enable'):
+            self.chk_enable.setChecked(True)
+        if hasattr(self, 'lbl_status'):
+            self.lbl_status.setText("● Idle")
+            self.lbl_status.setStyleSheet("color:#7880a0; font-size:12px; font-weight:700; padding:0 12px;")
+        if hasattr(self, 'lbl_queue'):
+            self.lbl_queue.setText("Queue: 0")
+        if hasattr(self, 'lbl_sent'):
+            self.lbl_sent.setText("Sent: 0")
+        if hasattr(self, 'lbl_failed'):
+            self.lbl_failed.setText("Failed: 0")
+        if hasattr(self, 'lbl_current_smtp'):
+            self.lbl_current_smtp.setText("SMTP: –")
+        if hasattr(self, 'btn_pause'):
+            self.btn_pause.setText("⏸ Pause")
+        if hasattr(self, 'btn_start'):
+            self.btn_start.setEnabled(True)
+
+        # Recipients Tab
+        if hasattr(self, 'txt_recipients'):
+            self.txt_recipients.blockSignals(True)
+            self.txt_recipients.clear()
+            self.txt_recipients.blockSignals(False)
+        if hasattr(self, 'txt_rec_log'):
+            self.txt_rec_log.clear()
+        self._prev_rec_count = 0
+        self._last_logged_rec_summary = None
+        if hasattr(self, 'txt_fallback'):
+            self.txt_fallback.clear()
+        if hasattr(self, 'lbl_rec_count'):
+            self.lbl_rec_count.setText("0 recipients loaded")
+        if hasattr(self, 'lbl_valid'):
+            self.lbl_valid.setText("Not validated")
+            self.lbl_valid.setStyleSheet("color:#f0a500; font-size:11px;")
+
+        # SMTP Tab
+        if hasattr(self, 'smtp_list'):
+            self.smtp_list.clear()
+        if hasattr(self, 'txt_single_smtp'):
+            self.txt_single_smtp.clear()
+        if hasattr(self, 'lbl_smtp_count'):
+            self.lbl_smtp_count.setText("0 SMTP accounts loaded")
+
+        # Tags Tab
+        if hasattr(self, 'inp_tfn1'):
+            self.inp_tfn1.clear()
+        if hasattr(self, 'inp_tfn2'):
+            self.inp_tfn2.clear()
+        if hasattr(self, 'chk_date_auto'):
+            self.chk_date_auto.setChecked(True)
+        if hasattr(self, 'inp_date'):
+            self.inp_date.clear()
+        if hasattr(self, 'chk_time_auto'):
+            self.chk_time_auto.setChecked(True)
+        if hasattr(self, 'inp_time'):
+            self.inp_time.clear()
+        if hasattr(self, 'rb_amt_custom'):
+            self.rb_amt_custom.setChecked(True)
+        if hasattr(self, 'inp_amt_custom'):
+            self.inp_amt_custom.clear()
+        if hasattr(self, 'spn_amt_min'):
+            self.spn_amt_min.setValue(100.0)
+        if hasattr(self, 'spn_amt_max'):
+            self.spn_amt_max.setValue(300.0)
+        if hasattr(self, 'txt_addresses'):
+            self.txt_addresses.clear()
+
+        # Content Tab
+        for rb in (getattr(self, 'rb_body_img', None), getattr(self, 'rb_body_pdf', None),
+                   getattr(self, 'rb_body_img_pdf', None), getattr(self, 'rb_inline_attach', None),
+                   getattr(self, 'rb_inline_pdf', None), getattr(self, 'rb_text_only', None),
+                   getattr(self, 'rb_html_only', None)):
+            if rb:
+                rb.blockSignals(True)
+        if hasattr(self, 'rb_html_only'):
+            self.rb_html_only.setChecked(True)
+        for rb in (getattr(self, 'rb_body_img', None), getattr(self, 'rb_body_pdf', None),
+                   getattr(self, 'rb_body_img_pdf', None), getattr(self, 'rb_inline_attach', None),
+                   getattr(self, 'rb_inline_pdf', None), getattr(self, 'rb_text_only', None),
+                   getattr(self, 'rb_html_only', None)):
+            if rb:
+                rb.blockSignals(False)
+
+        for rb in (getattr(self, 'rb_content_html', None), getattr(self, 'rb_content_text', None),
+                   getattr(self, 'rb_content_code', None)):
+            if rb:
+                rb.blockSignals(True)
+        if hasattr(self, 'rb_content_html'):
+            self.rb_content_html.setChecked(True)
+        for rb in (getattr(self, 'rb_content_html', None), getattr(self, 'rb_content_text', None),
+                   getattr(self, 'rb_content_code', None)):
+            if rb:
+                rb.blockSignals(False)
+
+        if hasattr(self, 'inp_quick_subject'):
+            self.inp_quick_subject.clear()
+        if hasattr(self, 'txt_subjects'):
+            self.txt_subjects.clear()
+        if hasattr(self, 'lbl_subj_count'):
+            self.lbl_subj_count.setText("0 subjects loaded")
+        if hasattr(self, 'chk_default_sender'):
+            self.chk_default_sender.setChecked(True)
+        if hasattr(self, 'txt_senders'):
+            self.txt_senders.clear()
+        if hasattr(self, 'txt_body_plain'):
+            self.txt_body_plain.clear()
+        if hasattr(self, 'html_list'):
+            self.html_list.clear()
+        if hasattr(self, 'chk_inline_b64'):
+            self.chk_inline_b64.setChecked(True)
+        if hasattr(self, 'txt_body_code'):
+            self.txt_body_code.clear()
+        if hasattr(self, 'chk_code_inline_b64'):
+            self.chk_code_inline_b64.setChecked(True)
+        if hasattr(self, 'img_att_list'):
+            self.img_att_list.clear()
+        if hasattr(self, 'cmb_img_format'):
+            self.cmb_img_format.setCurrentText("PNG")
+        if hasattr(self, 'pdf_att_list'):
+            self.pdf_att_list.clear()
+
+        # Update visibility
+        self._update_content_visibility()
+
+        # Delays & Limits Tab
+        if hasattr(self, 'spn_delay'):
+            self.spn_delay.setValue(1.0)
+        if hasattr(self, 'rb_auto'):
+            self.rb_auto.setChecked(True)
+        if hasattr(self, 'spn_limit'):
+            self.spn_limit.setValue(5)
+        if hasattr(self, 'spn_bounce'):
+            self.spn_bounce.setValue(25)
+        if hasattr(self, 'chk_auto_remove'):
+            self.chk_auto_remove.setChecked(True)
+
+        # Log Pane
+        if hasattr(self, 'log_box'):
+            self.log_box.clear()
+            self._log("✨ Workspace reset. Ready for new campaign.")
+
+        self.stats_changed.emit()
+        try:
+            self._save_settings()
+        except Exception:
+            pass
