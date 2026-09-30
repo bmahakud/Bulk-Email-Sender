@@ -219,12 +219,16 @@ class MainWindow(QMainWindow):
         file_menu.addAction(act_add_task)
         
         act_clear_smtp = QAction("Clear SMTP + Data", self)
-        act_clear_smtp.triggered.connect(self._clear_smtp_and_data)
+        act_clear_smtp.triggered.connect(lambda checked=False: self._clear_smtp_and_data())
         file_menu.addAction(act_clear_smtp)
         
         act_unsub = QAction("Unsubscribed List", self)
         act_unsub.triggered.connect(self._show_unsubscribed_dialog)
         file_menu.addAction(act_unsub)
+
+        act_dl_log = QAction("📥 Download Current Log", self)
+        act_dl_log.triggered.connect(self._download_active_task_log)
+        file_menu.addAction(act_dl_log)
 
         file_menu.addSeparator()
         act_exit = QAction("Exit", self)
@@ -358,7 +362,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(tb_btn("➕ New Task",   "#5865f2", self._add_task_dynamic))
         lay.addWidget(tb_btn("🏷 Tags",       "#7289da", self._show_tags_dialog))
         lay.addWidget(tb_btn("Unsubscribed",  "#6c5ce7", self._show_unsubscribed_dialog))
-        lay.addWidget(tb_btn("🗑 Clear Data",  "#3d3f52", self._clear_smtp_and_data))
+        lay.addWidget(tb_btn("🗑 Clear Data",  "#3d3f52", lambda checked=False: self._clear_smtp_and_data()))
         lay.addStretch()
 
         self.lbl_stats = QLabel("Sent: 0  |  Failed: 0  |  Queue: 0")
@@ -456,21 +460,115 @@ class MainWindow(QMainWindow):
         for p in self.task_panels:
             p.stop_task()
 
-    def _clear_smtp_and_data(self):
-        reply = QMessageBox.question(
-            self, "Confirm",
-            "Clear ALL SMTP accounts and recipient data from DB?\n\n"
-            "(HTML templates, subjects and tags will be preserved.)",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        if reply == QMessageBox.Yes:
-            self.db.clear_smtp_accounts()
-            self.db.clear_recipients()
-            for p in self.task_panels:
-                p.refresh_smtp_list()
-                p.refresh_recipient_count()
-            self.dashboard.log_activity(0, "Settings/SMTP/Recipient DB truncated.")
-            QMessageBox.information(self, "Cleared", "SMTP accounts and recipients cleared.")
+    def _clear_smtp_and_data(self, *args, **kwargs):
+        try:
+            btn_yes = getattr(QMessageBox.StandardButton, 'Yes', getattr(QMessageBox, 'Yes', 16384))
+            btn_no = getattr(QMessageBox.StandardButton, 'No', getattr(QMessageBox, 'No', 65536))
+            reply = QMessageBox.question(
+                self, "Confirm Clear All Data",
+                "Are you sure you want to clear ALL data?\n\n"
+                "This will completely remove:\n"
+                "  • All Recipients & SMTP accounts\n"
+                "  • All Tags, Subjects & Sender Names\n"
+                "  • All Email Templates, Body Texts & Attachments\n"
+                "  • All Campaign Logs & Counters\n\n"
+                "The entire workspace will be reset fresh as if starting new.\n"
+                "(Your license activation and unsubscribed list will be preserved.)",
+                btn_yes | btn_no,
+                btn_no
+            )
+            is_yes = (reply == btn_yes or "Yes" in str(reply))
+            if not is_yes:
+                return
+
+            # 1. Stop all active campaigns
+            self._stop_all()
+
+            # 2. Clear all campaign tables from Database
+            if hasattr(self.db, 'clear_all_campaign_data'):
+                self.db.clear_all_campaign_data()
+            else:
+                conn = self.db.get_connection()
+                cur = conn.cursor()
+                for tbl in ('recipients', 'smtp_accounts', 'send_logs', 'templates', 'subjects', 'sender_names'):
+                    try:
+                        cur.execute(f"DELETE FROM {tbl}")
+                    except Exception:
+                        pass
+                try:
+                    cur.execute("DELETE FROM settings WHERE key != 'license_token'")
+                except Exception:
+                    pass
+                conn.commit()
+                conn.close()
+
+            # 3. If multiple task tabs exist, close extra tasks (Task 2, 3...)
+            if len(self.task_panels) > 1:
+                self.task_tabs.blockSignals(True)
+                for p in list(self.task_panels[1:]):
+                    try:
+                        if p.worker and p.worker.isRunning():
+                            p.stop_task()
+                        idx = self.task_tabs.indexOf(p)
+                        if idx >= 0:
+                            self.task_tabs.removeTab(idx)
+                        p.deleteLater()
+                    except Exception:
+                        pass
+                self.task_panels = [self.task_panels[0]]
+                self.task_tabs.blockSignals(False)
+
+            # 4. Completely reset Task 1 panel
+            if self.task_panels:
+                p0 = self.task_panels[0]
+                p0.task_id = 1
+                tab_idx = self.task_tabs.indexOf(p0)
+                if tab_idx >= 0:
+                    self.task_tabs.setTabText(tab_idx, "Task 1")
+                p0.reset_task_data()
+
+            # Ensure any other TaskPanel tab is also reset
+            for i in range(self.task_tabs.count()):
+                w = self.task_tabs.widget(i)
+                if hasattr(w, 'reset_task_data'):
+                    try:
+                        w.reset_task_data()
+                    except Exception:
+                        pass
+
+            # 5. Reset Dashboard & Activity log
+            if hasattr(self, 'dashboard'):
+                try:
+                    self.dashboard.activities_log.clear()
+                    self.dashboard.log_activity(0, "✨ All data cleared. Workspace reset fresh.")
+                    self.dashboard.update_dashboard()
+                except Exception:
+                    pass
+
+            # 6. Global stats reset and switch focus to Task 1
+            self._refresh_global_stats()
+            if self.task_tabs.count() > 1:
+                self.task_tabs.setCurrentIndex(1)
+
+            QMessageBox.information(
+                self, "Cleared",
+                "All data has been cleared successfully.\n"
+                "The workspace is now completely fresh and ready for a new campaign."
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error Clearing Data", f"An error occurred while clearing data:\n{e}")
+
+    def _download_active_task_log(self):
+        """Trigger log download on currently active tab/task."""
+        curr_widget = self.task_tabs.currentWidget()
+        if hasattr(curr_widget, '_download_log'):
+            curr_widget._download_log()
+        elif hasattr(self, 'dashboard') and curr_widget == self.dashboard:
+            self.dashboard._download_dashboard_log()
+        elif self.task_panels:
+            self.task_panels[0]._download_log()
 
     # ── Tags dialog ──────────────────────────────────────────────────────────
     def _show_tags_dialog(self):

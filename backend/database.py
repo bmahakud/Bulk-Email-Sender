@@ -494,3 +494,37 @@ class Database:
         conn.close()
         return [dict(r) for r in rows]
 
+    # ── Global Campaign Clear Helper ───────────────────────────────────────────
+    def clear_all_campaign_data(self):
+        """
+        Clears all campaign data across the database:
+        - Recipients
+        - SMTP accounts
+        - Send logs
+        - Templates
+        - Subjects
+        - Sender names
+        - Task settings (preserves 'license_token')
+        
+        Strictly preserves:
+        - license_token (stays licensed)
+        - unsubscribed_recipients (suppression list is retained)
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM recipients")
+            cursor.execute("DELETE FROM smtp_accounts")
+            cursor.execute("DELETE FROM send_logs")
+            cursor.execute("DELETE FROM templates")
+            cursor.execute("DELETE FROM subjects")
+            cursor.execute("DELETE FROM sender_names")
+            cursor.execute("DELETE FROM settings WHERE key != 'license_token'")
+            try:
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('recipients', 'smtp_accounts', 'send_logs', 'templates', 'subjects', 'sender_names')")
+            except Exception:
+                pass
+            conn.commit()
+        finally:
+            conn.close()
+
