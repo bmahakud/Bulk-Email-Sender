@@ -174,20 +174,44 @@ class TaskPanel(QWidget):
         root.setSpacing(0)
         root.addWidget(self._make_top_bar())
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet("QSplitter::handle { background:#252637; width:4px; }")
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setStyleSheet("""
+            QSplitter::handle {
+                background: #1e202f;
+                width: 5px;
+            }
+            QSplitter::handle:hover {
+                background: #5865f2;
+            }
+        """)
 
         self.sub_tabs = QTabWidget()
         self.sub_tabs.setStyleSheet(SHARED_SS)
+        self.sub_tabs.setMinimumWidth(560)
         self.sub_tabs.addTab(self._tab_recipients(), "📨 Recipients")
         self.sub_tabs.addTab(self._tab_smtp(),       "📧 SMTP")
         self.sub_tabs.addTab(self._tab_tags(),       "🏷 Tags")
         self.sub_tabs.addTab(self._tab_content(),    "📝 Content")
         self.sub_tabs.addTab(self._tab_delays(),     "⚙ Delays & Limits")
-        splitter.addWidget(self.sub_tabs)
-        splitter.addWidget(self._make_log_pane())
-        splitter.setSizes([860, 480])
-        root.addWidget(splitter, 1)
+        self.splitter.addWidget(self.sub_tabs)
+        self.splitter.addWidget(self._make_log_pane())
+
+        self.splitter.setCollapsible(0, False)
+        self.splitter.setCollapsible(1, False)
+        self.splitter.setStretchFactor(0, 1)  # Tab content pane gets 100% of window resize growth
+        self.splitter.setStretchFactor(1, 0)  # Log pane stays docked at compact size
+        self.splitter.setSizes([880, 380])
+        root.addWidget(self.splitter, 1)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, '_splitter_initialized', False):
+            self._splitter_initialized = True
+            total_w = self.splitter.width()
+            if total_w > 500:
+                log_w = max(360, min(420, int(total_w * 0.30)))
+                left_w = total_w - log_w
+                self.splitter.setSizes([left_w, log_w])
 
     # ── Top bar ───────────────────────────────────────────────────────────────
     def _make_top_bar(self):
@@ -523,6 +547,27 @@ class TaskPanel(QWidget):
         g_sub = QGroupBox("Subject Lines  (rotation — one per line)")
         sl = QVBoxLayout()
 
+        # Subject & Body Rotation Mode
+        rot_box = QWidget()
+        rot_box.setStyleSheet("background:#0d0e17; border:1px solid #252637; border-radius:6px;")
+        rot_row = QHBoxLayout(rot_box)
+        rot_row.setContentsMargins(10, 6, 10, 6)
+        rot_row.setSpacing(16)
+        rot_lbl = QLabel("Rotation Mode:")
+        rot_lbl.setStyleSheet("color:#00d4aa; font-size:11px; font-weight:700;")
+        self.rb_rot_per_smtp = QRadioButton("Per SMTP (1 SMTP uses 1 Subject + Body, rotates on switch)")
+        self.rb_rot_random   = QRadioButton("Randomized (Paired Subject + Body changes every email)")
+        self.rb_rot_per_smtp.setStyleSheet("color:#e8eaf0; font-size:11px; font-weight:600;")
+        self.rb_rot_random.setStyleSheet("color:#e8eaf0; font-size:11px; font-weight:600;")
+        self.rb_rot_per_smtp.setToolTip("1 SMTP account will send all its emails using 1 Subject + Body. Switches to next pair when SMTP rotates.")
+        self.rb_rot_random.setToolTip("Each individual email gets a fresh random Subject and strictly matching Body.")
+        self.rb_rot_per_smtp.setChecked(True)
+        rot_row.addWidget(rot_lbl)
+        rot_row.addWidget(self.rb_rot_per_smtp)
+        rot_row.addWidget(self.rb_rot_random)
+        rot_row.addStretch()
+        sl.addWidget(rot_box)
+
         # Quick single-subject paste box
         quick_row = QHBoxLayout()
         quick_lbl = QLabel("Quick Add:")
@@ -569,27 +614,15 @@ class TaskPanel(QWidget):
         sl.addWidget(self.txt_subjects)
         g_sub.setLayout(sl); lay.addWidget(g_sub)
 
-        # Sender names
-        g_snd = QGroupBox("Sender Names  (rotation — one per line)")
-        snl = QVBoxLayout()
-        self.chk_default_sender = QCheckBox("Use SMTP account email as sender name (default)")
-        self.chk_default_sender.setChecked(True)
-        snl.addWidget(self.chk_default_sender)
-        self.txt_senders = QTextEdit()
-        self.txt_senders.setPlaceholderText("Sophia Adams\nAva Harris\nJohn Smith")
-        self.txt_senders.setFixedHeight(80)
-        snl.addWidget(self.txt_senders)
-        g_snd.setLayout(snl); lay.addWidget(g_snd)
-
         # Body Content Type selection (HTML Template vs Plain Text vs Paste Code/HTML)
         self.g_body_type = QGroupBox("Body Content Format")
         bt_lay = QHBoxLayout(self.g_body_type)
-        self.rb_content_html = QRadioButton("HTML Template (default)")
-        self.rb_content_text = QRadioButton("Plain Text")
+        self.rb_content_text = QRadioButton("Plain Text / Multiple Bodies (default)")
+        self.rb_content_html = QRadioButton("HTML Template (.html file)")
         self.rb_content_code = QRadioButton("Paste Code / HTML")
-        self.rb_content_html.setChecked(True)
-        bt_lay.addWidget(self.rb_content_html)
+        self.rb_content_text.setChecked(True)
         bt_lay.addWidget(self.rb_content_text)
+        bt_lay.addWidget(self.rb_content_html)
         bt_lay.addWidget(self.rb_content_code)
         bt_lay.addStretch()
         lay.addWidget(self.g_body_type)
@@ -601,12 +634,28 @@ class TaskPanel(QWidget):
         self.g_txt = QGroupBox("Body Text  (plain text / fallback if no HTML)")
         tl = QVBoxLayout()
 
+        # Bulk body actions bar
+        bulk_body_row = QHBoxLayout()
+        b_body_csv   = QPushButton("📂 Load CSV/Excel"); b_body_csv.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_body_paste = QPushButton("📋 Paste Multiple Bodies"); b_body_paste.setStyleSheet(BTN("#4752c4", "#3a47a0"))
+        b_body_clear = QPushButton("🗑 Clear");                 b_body_clear.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_body_csv.clicked.connect(self._load_bodies_csv)
+        b_body_paste.clicked.connect(self._paste_bulk_bodies)
+        b_body_clear.clicked.connect(self._clear_bodies)
+
+        self.lbl_body_count = QLabel("1 body template loaded")
+        self.lbl_body_count.setStyleSheet("color:#43b581; font-size:11px; font-weight:600;")
+
+        bulk_body_row.addWidget(b_body_csv)
+        bulk_body_row.addWidget(b_body_paste)
+        bulk_body_row.addWidget(b_body_clear)
+        bulk_body_row.addStretch()
+        bulk_body_row.addWidget(self.lbl_body_count)
+        tl.addLayout(bulk_body_row)
+
         body_hint = QLabel(
-            "\u2139\ufe0f  What to write in the body:\n"
-            "  \u2022 Start with a personalised greeting using #NAME#\n"
-            "  \u2022 Mention the transaction / invoice details using tags\n"
-            "  \u2022 Add a call-to-action or contact number via #TFN1#\n"
-            "  \u2022 Close with your brand name or company footer"
+            "ℹ️  Multiple body templates are supported! Separate each body template with === on a new line.\n"
+            "Each body matches the corresponding Subject line (Subject 1 → Body 1, Subject 2 → Body 2)."
         )
         body_hint.setStyleSheet(
             "color:#7880a0; font-size:11px; background:#0d0e17; "
@@ -628,13 +677,12 @@ class TaskPanel(QWidget):
             "  Amount          : $#AMOUNT#\n"
             "  Billing Address : #ADDRESS#\n\n"
             "If you have any questions, please contact our support team:\n"
-            "  \U0001f4de  #TFN1#  |  #TFN2#\n\n"
-            "Thank you for choosing our services.\n\n"
-            "Warm regards,\n"
-            "Customer Support Team\n"
-            "Powered by ProMailer Pro | Bulk Email Sender"
+            "  📞 #TFN1#  |  #TFN2#\n\n"
+            "===\n\n"
+            "Second body template text here (optional)..."
         )
         self.txt_body_plain.setFixedHeight(200)
+        self.txt_body_plain.textChanged.connect(self._on_bodies_changed)
         tl.addWidget(self.txt_body_plain)
         self.g_txt.setLayout(tl); lay.addWidget(self.g_txt)
 
@@ -692,6 +740,18 @@ class TaskPanel(QWidget):
         cl.addWidget(self.chk_code_inline_b64)
 
         self.g_code.setLayout(cl); lay.addWidget(self.g_code)
+
+        # Sender names
+        g_snd = QGroupBox("Sender Names  (rotation — one per line)")
+        snl = QVBoxLayout()
+        self.chk_default_sender = QCheckBox("Use SMTP account email as sender name (default)")
+        self.chk_default_sender.setChecked(True)
+        snl.addWidget(self.chk_default_sender)
+        self.txt_senders = QTextEdit()
+        self.txt_senders.setPlaceholderText("Sophia Adams\nAva Harris\nJohn Smith")
+        self.txt_senders.setFixedHeight(70)
+        snl.addWidget(self.txt_senders)
+        g_snd.setLayout(snl); lay.addWidget(g_snd)
 
         # Attachments
         self.g_att = QGroupBox("Attachments  (personalised filename = email-prefix + 4 random digits)")
@@ -866,6 +926,7 @@ class TaskPanel(QWidget):
         lay.addWidget(self.log_box, 1)
 
         foot_row = QHBoxLayout()
+        foot_row.setSpacing(6)
         self.lbl_current_smtp = QLabel("SMTP: –")
         self.lbl_current_smtp.setFixedHeight(30)
         self.lbl_current_smtp.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
@@ -875,8 +936,8 @@ class TaskPanel(QWidget):
         b_dl_foot.setStyleSheet("""
             QPushButton {
                 background: #5865f2; color: #ffffff; border: none;
-                padding: 4px 14px; border-radius: 5px;
-                font-weight: 600; font-size: 12px;
+                padding: 4px 10px; border-radius: 5px;
+                font-weight: 600; font-size: 11px;
             }
             QPushButton:hover { background: #4752c4; }
         """)
@@ -887,8 +948,8 @@ class TaskPanel(QWidget):
         b_clr.setStyleSheet("""
             QPushButton {
                 background: #3d3f52; color: #ffffff; border: none;
-                padding: 4px 14px; border-radius: 5px;
-                font-weight: 600; font-size: 12px;
+                padding: 4px 10px; border-radius: 5px;
+                font-weight: 600; font-size: 11px;
             }
             QPushButton:hover { background: #52546e; }
         """)
@@ -1511,11 +1572,19 @@ class TaskPanel(QWidget):
                 templates = [self._format_text_for_email(plain)]
         return templates
 
-    # ── Subject line helpers ──────────────────────────────────────────────────
+    # ── Subject & Body helpers ────────────────────────────────────────────────
     def _on_subjects_changed(self):
         lines = [l.strip() for l in self.txt_subjects.toPlainText().split('\n') if l.strip()]
         if hasattr(self, 'lbl_subj_count'):
             self.lbl_subj_count.setText(f"{len(lines)} subject(s) loaded")
+
+    def _on_bodies_changed(self):
+        import re
+        raw = self.txt_body_plain.toPlainText()
+        bodies = [b.strip() for b in re.split(r'\s*={3,}\s*', raw) if b.strip()]
+        count = len(bodies)
+        if hasattr(self, 'lbl_body_count'):
+            self.lbl_body_count.setText(f"{count} body template(s) loaded")
 
     def _add_quick_subject(self):
         line = self.inp_quick_subject.text().strip()
@@ -1531,12 +1600,32 @@ class TaskPanel(QWidget):
 
     def _load_subjects_csv(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load Subjects CSV/Excel", "", "CSV/Excel (*.csv *.xlsx *.xls)"
+            self, "Load Subjects (TXT / CSV / Excel)", "",
+            "All Supported (*.txt *.csv *.xlsx *.xls);;Text Files (*.txt);;CSV/Excel (*.csv *.xlsx *.xls);;All Files (*.*)"
         )
         if not path:
             return
+
+        p = Path(path)
+        if p.suffix.lower() == ".txt":
+            try:
+                lines = [l.strip() for l in p.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+            except Exception as e:
+                self._log(f"❌ Error reading text file: {e}")
+                return
+            if not lines:
+                QMessageBox.information(self, "Empty File", "No subject lines found in the selected text file.")
+                return
+
+            current = self.txt_subjects.toPlainText().strip()
+            combined = (current + "\n" + "\n".join(lines)).strip() if current else "\n".join(lines)
+            self.txt_subjects.setPlainText(combined)
+            self._log(f"📂 Loaded {len(lines)} subject line(s) from text file: {p.name}")
+            return
+
         rows = self._read_csv_or_excel(path)
-        lines = []
+        subj_lines = []
+        body_lines = []
         for idx, row in enumerate(rows):
             if not row:
                 continue
@@ -1545,16 +1634,24 @@ class TaskPanel(QWidget):
             if idx == 0 and subj.lower() in ("subject", "subjects", "subject line", "subject lines", "subject_line") and len(rows) > 1:
                 continue
             if subj:
-                lines.append(subj)
+                subj_lines.append(subj)
+                if len(row) >= 2:
+                    body_lines.append(str(row[1]).strip())
 
-        if not lines:
+        if not subj_lines:
             QMessageBox.information(self, "No Subjects", "No valid subject lines found in the selected file.")
             return
 
         current = self.txt_subjects.toPlainText().strip()
-        combined = (current + "\n" + "\n".join(lines)).strip() if current else "\n".join(lines)
+        combined = (current + "\n" + "\n".join(subj_lines)).strip() if current else "\n".join(subj_lines)
         self.txt_subjects.setPlainText(combined)
-        self._log(f"📂 Loaded {len(lines)} subject lines from file: {Path(path).name}")
+        self._log(f"📂 Loaded {len(subj_lines)} subject lines from file: {Path(path).name}")
+
+        if body_lines:
+            curr_b = self.txt_body_plain.toPlainText().strip()
+            comb_b = (curr_b + "\n===\n" + "\n===\n".join(body_lines)).strip() if curr_b else "\n===\n".join(body_lines)
+            self.txt_body_plain.setPlainText(comb_b)
+            self._log(f"📄 Also loaded {len(body_lines)} matching body templates from file")
 
     def _paste_bulk_subjects(self):
         dlg = PasteDialog(
@@ -1578,6 +1675,97 @@ class TaskPanel(QWidget):
     def _clear_subjects(self):
         self.txt_subjects.clear()
         self._log("🗑 Subject lines cleared")
+
+    def _load_bodies_csv(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Body Templates (TXT / CSV / Excel)", "",
+            "All Supported (*.txt *.csv *.xlsx *.xls);;Text Files (*.txt);;CSV/Excel (*.csv *.xlsx *.xls);;All Files (*.*)"
+        )
+        if not path:
+            return
+
+        p = Path(path)
+        if p.suffix.lower() == ".txt":
+            try:
+                raw_text = p.read_text(encoding="utf-8", errors="replace").strip()
+            except Exception as e:
+                self._log(f"❌ Error reading text file: {e}")
+                return
+            if not raw_text:
+                QMessageBox.information(self, "Empty File", "The selected text file is empty.")
+                return
+
+            import re
+            body_parts = [b.strip() for b in re.split(r'\s*={3,}\s*', raw_text) if b.strip()]
+            self.txt_body_plain.setPlainText(raw_text)
+            self._on_bodies_changed()
+            self._log(f"📄 Loaded {len(body_parts)} body template(s) from text file: {p.name}")
+            return
+
+        rows = self._read_csv_or_excel(path)
+        body_lines = []
+        subj_lines = []
+        for idx, row in enumerate(rows):
+            if not row:
+                continue
+            if len(row) >= 2:
+                s = str(row[0]).strip()
+                b = str(row[1]).strip()
+                if idx == 0 and (s.lower() in ("subject", "subjects") or b.lower() in ("body", "text", "template", "message")) and len(rows) > 1:
+                    continue
+                if b:
+                    body_lines.append(b)
+                if s:
+                    subj_lines.append(s)
+            else:
+                b = str(row[0]).strip()
+                if idx == 0 and b.lower() in ("body", "text", "template", "message") and len(rows) > 1:
+                    continue
+                if b:
+                    body_lines.append(b)
+
+        if not body_lines:
+            QMessageBox.information(self, "No Body Content", "No valid body content found in the selected file.")
+            return
+
+        curr_b = self.txt_body_plain.toPlainText().strip()
+        comb_b = (curr_b + "\n===\n" + "\n===\n".join(body_lines)).strip() if curr_b else "\n===\n".join(body_lines)
+        self.txt_body_plain.setPlainText(comb_b)
+        self._log(f"📄 Loaded {len(body_lines)} body template(s) from file: {Path(path).name}")
+
+        if subj_lines:
+            curr_s = self.txt_subjects.toPlainText().strip()
+            comb_s = (curr_s + "\n" + "\n".join(subj_lines)).strip() if curr_s else "\n".join(subj_lines)
+            self.txt_subjects.setPlainText(comb_s)
+            self._log(f"📂 Also loaded {len(subj_lines)} matching subject lines from file")
+
+    def _paste_bulk_bodies(self):
+        dlg = PasteDialog(
+            "Paste Multiple Body Templates",
+            "Paste multiple body templates below.\n"
+            "Separate each template with === on a new line.\n\n"
+            "Example:\n"
+            "Hello #NAME#, your invoice #INVOICE# is ready...\n"
+            "===\n"
+            "Hi #NAME#, order #ORDERID# has been confirmed...\n"
+            "===\n"
+            "Dear #NAME#, notice regarding transaction #TXNID#...",
+            self
+        )
+        if dlg.exec() == QDialog.Accepted:
+            pasted = dlg.get_text().strip()
+            import re
+            new_bodies = [b.strip() for b in re.split(r'\s*={3,}\s*', pasted) if b.strip()]
+            if not new_bodies:
+                return
+            curr_b = self.txt_body_plain.toPlainText().strip()
+            comb_b = (curr_b + "\n===\n" + "\n===\n".join(new_bodies)).strip() if curr_b else "\n===\n".join(new_bodies)
+            self.txt_body_plain.setPlainText(comb_b)
+            self._log(f"📋 Pasted {len(new_bodies)} body template(s)")
+
+    def _clear_bodies(self):
+        self.txt_body_plain.clear()
+        self._log("🗑 Body templates cleared")
 
     # ── Persistent Settings (survive SMTP/Data clear + app restart) ──────────
     def _save_settings(self):
@@ -1649,6 +1837,7 @@ class TaskPanel(QWidget):
         s(pfx + "limit_per_smtp", str(self.spn_limit.value()))
         s(pfx + "auto_remove", "1" if self.chk_auto_remove.isChecked() else "0")
         s(pfx + "bounce_pct", str(self.spn_bounce.value()))
+        s(pfx + "rot_mode", "per_smtp" if getattr(self, 'rb_rot_per_smtp', None) and self.rb_rot_per_smtp.isChecked() else "random")
 
     def _load_settings(self):
         """Restore persisted task parameters from DB."""
@@ -1691,6 +1880,13 @@ class TaskPanel(QWidget):
         v = g(pfx + "img_format")
         if v: self.cmb_img_format.setCurrentText(v)
 
+        # Rotation mode
+        v = g(pfx + "rot_mode", "per_smtp")
+        if v == "random" and hasattr(self, 'rb_rot_random'):
+            self.rb_rot_random.setChecked(True)
+        elif hasattr(self, 'rb_rot_per_smtp'):
+            self.rb_rot_per_smtp.setChecked(True)
+
         # Body mode
         v = g(pfx + "body_mode")
         # Block signals temporarily to prevent trigger loops during config load
@@ -1724,16 +1920,16 @@ class TaskPanel(QWidget):
                    self.rb_text_only, self.rb_html_only):
             rb.blockSignals(False)
             
-        bct = g(pfx + "body_content_type", "html")
+        bct = g(pfx + "body_content_type", "text")
         self.rb_content_html.blockSignals(True)
         self.rb_content_text.blockSignals(True)
         self.rb_content_code.blockSignals(True)
-        if bct == "text":
-            self.rb_content_text.setChecked(True)
+        if bct == "html":
+            self.rb_content_html.setChecked(True)
         elif bct == "code":
             self.rb_content_code.setChecked(True)
         else:
-            self.rb_content_html.setChecked(True)
+            self.rb_content_text.setChecked(True)
         self.rb_content_html.blockSignals(False)
         self.rb_content_text.blockSignals(False)
         self.rb_content_code.blockSignals(False)
@@ -1778,6 +1974,7 @@ class TaskPanel(QWidget):
         v = g(pfx + "bounce_pct")
         if v: self.spn_bounce.setValue(int(v))
         self._on_subjects_changed()
+        self._on_bodies_changed()
 
     # ── Task execution ────────────────────────────────────────────────────────
     def start_task(self):
@@ -1852,10 +2049,15 @@ class TaskPanel(QWidget):
         templates = []
         body_plain = ""
 
+        import re
+        raw_b_text = self.txt_body_plain.toPlainText()
+        raw_b_list = [b.strip() for b in re.split(r'\s*={3,}\s*', raw_b_text) if b.strip()]
+        body_plain_list = [self._format_text_for_email(b) for b in raw_b_list] if raw_b_list else []
+
         if body_content_type == "text" or body_mode in ("text", "text_inline"):
-            formatted_text = self._format_text_for_email(self.txt_body_plain.toPlainText())
+            formatted_text = body_plain_list[0] if body_plain_list else self._format_text_for_email(raw_b_text)
             body_plain = formatted_text
-            templates = [formatted_text] if formatted_text else []
+            templates = body_plain_list if body_plain_list else ([formatted_text] if formatted_text else [])
         elif body_content_type == "code":
             formatted_code = self._format_text_for_email(self.txt_body_code.toPlainText())
             body_plain = formatted_code
@@ -1865,10 +2067,12 @@ class TaskPanel(QWidget):
         else:
             # HTML Template mode
             templates = self._get_html_templates()
-            formatted_text = self._format_text_for_email(self.txt_body_plain.toPlainText())
+            formatted_text = self._format_text_for_email(raw_b_text)
             body_plain = formatted_text
             if not templates and formatted_text:
                 templates = [formatted_text]
+
+        rotation_mode = "per_smtp" if getattr(self, 'rb_rot_per_smtp', None) and self.rb_rot_per_smtp.isChecked() else "random"
 
         config = {
             "templates":          templates,
@@ -1885,6 +2089,8 @@ class TaskPanel(QWidget):
             "body_mode":          body_mode,
             "body_content_type":  body_content_type,
             "body_plain":         body_plain,
+            "body_plain_list":    body_plain_list,
+            "rotation_mode":      rotation_mode,
             "img_format":         self.cmb_img_format.currentText(),
         }
 
@@ -2124,8 +2330,8 @@ class TaskPanel(QWidget):
                    getattr(self, 'rb_content_code', None)):
             if rb:
                 rb.blockSignals(True)
-        if hasattr(self, 'rb_content_html'):
-            self.rb_content_html.setChecked(True)
+        if hasattr(self, 'rb_content_text'):
+            self.rb_content_text.setChecked(True)
         for rb in (getattr(self, 'rb_content_html', None), getattr(self, 'rb_content_text', None),
                    getattr(self, 'rb_content_code', None)):
             if rb:
@@ -2143,6 +2349,10 @@ class TaskPanel(QWidget):
             self.txt_senders.clear()
         if hasattr(self, 'txt_body_plain'):
             self.txt_body_plain.clear()
+        if hasattr(self, 'lbl_body_count'):
+            self.lbl_body_count.setText("0 body template(s) loaded")
+        if hasattr(self, 'rb_rot_per_smtp'):
+            self.rb_rot_per_smtp.setChecked(True)
         if hasattr(self, 'html_list'):
             self.html_list.clear()
         if hasattr(self, 'chk_inline_b64'):
