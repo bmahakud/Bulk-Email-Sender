@@ -594,9 +594,30 @@ class TaskWorker(QThread):
 
             graph = GraphAPIClient(current_smtp.get('client_id', ''))
 
-            # ── Pick template / subject / sender ──
-            raw_html  = templates[tpl_idx   % len(templates)] if templates else ""
-            raw_subj  = subjects[subj_idx   % len(subjects)] if subjects else ""
+            # ── Pick template / subject / body / sender according to rotation_mode ──
+            rotation_mode = cfg.get("rotation_mode", "per_smtp")
+            body_plain_list = cfg.get("body_plain_list", [])
+            if not body_plain_list:
+                default_bp = cfg.get("body_plain", "")
+                body_plain_list = [default_bp] if default_bp else []
+
+            num_subj = len(subjects) if subjects else 1
+            num_body = len(body_plain_list) if body_plain_list else 1
+
+            if rotation_mode == "per_smtp":
+                # Tied strictly to the current active SMTP account index:
+                # 1 SMTP account sends all its emails using 1 Subject + Body pair.
+                # When SMTP switches, Subject and Body switch to the next pair!
+                pair_idx = smtp_idx
+            else:
+                # Randomized / Per Email:
+                # Every email picks a randomized or rotated pair, where Subject and Body are matched!
+                import random
+                pair_idx = random.randint(0, max(num_subj, num_body) - 1)
+
+            raw_subj  = subjects[pair_idx % len(subjects)] if subjects else ""
+            raw_text  = body_plain_list[pair_idx % len(body_plain_list)] if body_plain_list else cfg.get("body_plain", "")
+            raw_html  = templates[pair_idx % len(templates)] if templates else ""
             sndr_name = sender_names[sndr_idx % len(sender_names)] if sender_names else ''
 
             # ── Tag replacement (synchronized across body, subject, and PDF attachment) ──
@@ -606,7 +627,6 @@ class TaskWorker(QThread):
             subject   = self.tag_proc.apply_replacements(raw_subj, recipient_tags)
             to_name   = self.tag_proc.apply_replacements(sndr_name, recipient_tags) if sndr_name else (recipient.get('name') or '')
             
-            raw_text = cfg.get("body_plain", "")
             text_body = self.tag_proc.apply_replacements(raw_text, recipient_tags)
 
 
