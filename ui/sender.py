@@ -45,6 +45,12 @@ class SenderTab(QWidget):
         self.retry_spin.setValue(3)
         settings_layout.addRow("Retry count:", self.retry_spin)
         
+        self.batch_per_account_spin = QSpinBox()
+        self.batch_per_account_spin.setRange(1, 10000)
+        self.batch_per_account_spin.setValue(100)
+        self.batch_per_account_spin.setSuffix(" emails")
+        settings_layout.addRow("Switch account after:", self.batch_per_account_spin)
+        
         layout.addWidget(settings_group)
         
         # Control buttons
@@ -167,8 +173,8 @@ class SenderTab(QWidget):
                 return
             
             template_data = templates_tab.get_template_data()
-            if not template_data['html'] or not template_data['subjects']:
-                QMessageBox.warning(self, "Error", "Please configure HTML template and subject lines first.")
+            if not template_data.get('bodies') or not template_data.get('subjects'):
+                QMessageBox.warning(self, "Error", "Please configure body content and subject lines first in the Templates tab.")
                 return
             
             # Create campaign
@@ -193,7 +199,10 @@ class SenderTab(QWidget):
                 subject_lines=template_data['subjects'],
                 attachments=[],  # TODO: Add attachment support
                 delay_seconds=self.delay_spin.value(),
-                retry_count=self.retry_spin.value()
+                retry_count=self.retry_spin.value(),
+                body_templates=template_data.get('bodies', [template_data['html']]),
+                rotation_mode=template_data.get('rotation_mode', 'randomized'),
+                emails_per_account=self.batch_per_account_spin.value()
             )
             
             # Connect signals

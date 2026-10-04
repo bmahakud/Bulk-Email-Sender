@@ -459,6 +459,7 @@ class TaskWorker(QThread):
 
     # ── Main ─────────────────────────────────────────────────────────────────
     def run(self):
+        import random
         self.status_changed.emit("running")
         cfg = self.config
 
@@ -604,16 +605,17 @@ class TaskWorker(QThread):
             num_subj = len(subjects) if subjects else 1
             num_body = len(body_plain_list) if body_plain_list else 1
 
-            if rotation_mode == "per_smtp":
-                # Tied strictly to the current active SMTP account index:
-                # 1 SMTP account sends all its emails using 1 Subject + Body pair.
-                # When SMTP switches, Subject and Body switch to the next pair!
+            if rotation_mode == "random":
+                # Randomized:
+                # Every email picks a randomized pair, where Subject and Body are matched!
+                pair_idx = random.randint(0, max(num_subj, num_body) - 1)
+            elif rotation_mode == "per_smtp":
+                # Per SMTP: Locked to active SMTP account index (switches when account rotates)
                 pair_idx = smtp_idx
             else:
-                # Randomized / Per Email:
-                # Every email picks a randomized or rotated pair, where Subject and Body are matched!
-                import random
-                pair_idx = random.randint(0, max(num_subj, num_body) - 1)
+                # Per Email (Default):
+                # Every individual email takes the next matching Subject + Body pair in sequence (1 -> 2 -> 3 -> 4 -> 1...)
+                pair_idx = (sent + failed) % max(num_subj, num_body)
 
             raw_subj  = subjects[pair_idx % len(subjects)] if subjects else ""
             raw_text  = body_plain_list[pair_idx % len(body_plain_list)] if body_plain_list else cfg.get("body_plain", "")
@@ -1113,7 +1115,11 @@ class TaskWorker(QThread):
             })
 
             if delay_s > 0 and self._running and recipients_queue:
-                time.sleep(delay_s)
+                end_s = time.time() + delay_s
+                while time.time() < end_s and self._running:
+                    while self._paused and self._running:
+                        time.sleep(0.1)
+                    time.sleep(0.1)
 
         self.log_message.emit(
             f"[Task {self.task_id}] 🎉 Done — Sent: {sent}  Failed: {failed}"

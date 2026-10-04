@@ -2,6 +2,7 @@
 Background worker for sending emails with QThread
 """
 import time
+import random
 from pathlib import Path
 from typing import Optional, List, Dict
 from PySide6.QtCore import QThread, Signal
@@ -30,10 +31,13 @@ class SendWorker(QThread):
         self.campaign_id: Optional[int] = None
         self.recipients: List[Dict] = []
         self.html_content: str = ""
+        self.body_templates: List[str] = []
         self.subject_lines: List[str] = []
         self.attachments: List[Path] = []
         self.delay_seconds: float = 1.0
         self.retry_count: int = 3
+        self.rotation_mode: str = "randomized"
+        self.emails_per_account: int = 100
         
         # Control flags
         self._running = False
@@ -42,6 +46,7 @@ class SendWorker(QThread):
         
         # State tracking
         self.current_account_index = 0
+        self.current_account_sent = 0
         self.sent_count = 0
         self.failed_count = 0
         self.start_time = 0
@@ -50,15 +55,21 @@ class SendWorker(QThread):
     
     def configure(self, campaign_id: int, recipients: List[Dict], html_content: str,
                   subject_lines: List[str], attachments: List[Path], 
-                  delay_seconds: float = 1.0, retry_count: int = 3):
+                  delay_seconds: float = 1.0, retry_count: int = 3,
+                  body_templates: Optional[List[str]] = None,
+                  rotation_mode: str = "randomized",
+                  emails_per_account: int = 100):
         """Configure worker with campaign details"""
         self.campaign_id = campaign_id
         self.recipients = recipients
         self.html_content = html_content
-        self.subject_lines = subject_lines
+        self.body_templates = body_templates if body_templates else ([html_content] if html_content else [])
+        self.subject_lines = [s for s in subject_lines if s.strip()] if subject_lines else ["No Subject"]
         self.attachments = attachments
         self.delay_seconds = delay_seconds
         self.retry_count = retry_count
+        self.rotation_mode = rotation_mode
+        self.emails_per_account = emails_per_account
     
     def run(self):
         """Main worker thread execution"""
@@ -67,9 +78,10 @@ class SendWorker(QThread):
         self._cancelled = False
         self.sent_count = 0
         self.failed_count = 0
+        self.current_account_sent = 0
         self.start_time = time.time()
         
-        logger.info(f"Starting email send campaign {self.campaign_id}")
+        logger.info(f"Starting email send campaign {self.campaign_id} (Mode: {self.rotation_mode})")
         Campaign.update_status(self.campaign_id, "running")
         
         # Get active accounts
@@ -97,6 +109,16 @@ class SendWorker(QThread):
             if self._cancelled:
                 break
             
+            # Check if current account reached batch threshold
+            if (self.emails_per_account > 0 and 
+                self.current_account_sent >= self.emails_per_account and 
+                len(accounts) > 1):
+                self.current_account_index += 1
+                self.current_account_sent = 0
+                new_acc = accounts[self.current_account_index % len(accounts)]
+                logger.info(f"Switching account after {self.emails_per_account} sends -> {new_acc['email']}")
+                self.account_switched.emit(new_acc['email'])
+            
             # Try sending with retries
             success = False
             for attempt in range(self.retry_count):
@@ -122,6 +144,7 @@ class SendWorker(QThread):
                         logger.error(f"Failed to refresh token for {account['email']}")
                         Account.update_status(account['email'], 'token_expired')
                         self.current_account_index += 1
+                        self.current_account_sent = 0
                         continue
                 
                 # Send email
@@ -135,6 +158,7 @@ class SendWorker(QThread):
                 if result['status'] == 'success':
                     success = True
                     self.sent_count += 1
+                    self.current_account_sent += 1
                     Campaign.increment_sent(self.campaign_id)
                     Recipient.update_status(recipient['id'], 'sent')
                     break
@@ -142,12 +166,14 @@ class SendWorker(QThread):
                     # Rate limit - switch account
                     logger.warning(f"Rate limit hit for {account['email']}, switching account")
                     self.current_account_index += 1
+                    self.current_account_sent = 0
                     self.account_switched.emit(accounts[self.current_account_index % len(accounts)]['email'])
                     time.sleep(2)  # Brief pause before retry
                 elif result['response_code'] == 401:
                     # Token expired - try refresh
                     logger.warning(f"Token issue for {account['email']}, switching account")
                     self.current_account_index += 1
+                    self.current_account_sent = 0
                     time.sleep(1)
                 else:
                     # Other error - retry with same account
@@ -167,9 +193,13 @@ class SendWorker(QThread):
                 'current_account': accounts[self.current_account_index % len(accounts)]['email']
             })
             
-            # Delay between emails
+            # Responsive delay between emails
             if idx < len(self.recipients) - 1:
-                time.sleep(self.delay_seconds)
+                end_sleep = time.time() + self.delay_seconds
+                while time.time() < end_sleep and not self._cancelled:
+                    while self._paused and not self._cancelled:
+                        time.sleep(0.1)
+                    time.sleep(0.1)
         
         # Campaign completed
         duration = time.time() - self.start_time
@@ -187,16 +217,35 @@ class SendWorker(QThread):
     
     def _send_single_email(self, account: Dict, recipient: Dict, 
                           attachments: List[Dict], recipient_index: int) -> Dict:
-        """Send a single email"""
+        """Send a single email with paired Subject + Body selection"""
         try:
-            # Get subject (rotate through subject lines)
-            subject = self.subject_lines[recipient_index % len(self.subject_lines)]
+            total_subjects = len(self.subject_lines) if self.subject_lines else 1
+            bodies = self.body_templates if self.body_templates else ([self.html_content] if self.html_content else [""])
+            total_bodies = len(bodies)
+            num_pairs = max(total_subjects, total_bodies)
             
-            # Replace tags in subject
-            subject = TagEngine.replace_tags(subject, recipient)
+            if self.rotation_mode in ("randomized", "random"):
+                # Randomized: Pick random pair on EVERY individual email
+                pair_index = random.randint(0, num_pairs - 1)
+            elif self.rotation_mode == "per_smtp":
+                # Per SMTP: Locked to active SMTP account index (switches when account rotates)
+                pair_index = self.current_account_index % num_pairs
+            else:
+                # Per Email (Default): Rotates sequentially per email (1 -> 2 -> 3 -> 4 -> 1...)
+                pair_index = (self.sent_count + self.failed_count) % num_pairs
             
-            # Replace tags in HTML body
-            body_html = TagEngine.replace_tags(self.html_content, recipient)
+            subject_raw = self.subject_lines[pair_index % total_subjects]
+            body_raw = bodies[pair_index % total_bodies]
+            
+            # Replace tags in subject & body
+            subject = TagEngine.replace_tags(subject_raw, recipient)
+            body_replaced = TagEngine.replace_tags(body_raw, recipient)
+            
+            # If body is plain text, wrap newlines nicely for HTML email clients
+            if "<html" not in body_replaced.lower() and "<p" not in body_replaced.lower() and "<div" not in body_replaced.lower():
+                body_html = "<div style='font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.6; color: #222;'>" + body_replaced.replace("\n", "<br>") + "</div>"
+            else:
+                body_html = body_replaced
             
             # Send via Graph API
             client = GraphClient(account['access_token'])
@@ -238,26 +287,25 @@ class SendWorker(QThread):
                 'message': str(e),
                 'response_code': 500
             }
-    
+
     def pause(self):
         """Pause sending"""
         self._paused = True
-        logger.info("Campaign paused")
-    
+        logger.info("SendWorker: Paused")
+
     def resume(self):
         """Resume sending"""
         self._paused = False
-        logger.info("Campaign resumed")
-    
+        logger.info("SendWorker: Resumed")
+
     def cancel(self):
-        """Cancel sending"""
+        """Cancel and stop sending"""
         self._cancelled = True
-        logger.info("Campaign cancellation requested")
-    
-    def is_running(self) -> bool:
-        """Check if worker is running"""
-        return self._running
-    
-    def is_paused(self) -> bool:
-        """Check if worker is paused"""
-        return self._paused
+        self._running = False
+        self._paused = False
+        logger.info("SendWorker: Cancelled")
+
+    def stop(self):
+        """Stop alias for cancel"""
+        self.cancel()
+

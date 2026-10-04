@@ -555,15 +555,16 @@ class TaskPanel(QWidget):
         rot_row.setSpacing(16)
         rot_lbl = QLabel("Rotation Mode:")
         rot_lbl.setStyleSheet("color:#00d4aa; font-size:11px; font-weight:700;")
-        self.rb_rot_per_smtp = QRadioButton("Per SMTP (1 SMTP uses 1 Subject + Body, rotates on switch)")
-        self.rb_rot_random   = QRadioButton("Randomized (Paired Subject + Body changes every email)")
-        self.rb_rot_per_smtp.setStyleSheet("color:#e8eaf0; font-size:11px; font-weight:600;")
+        self.rb_rot_per_email = QRadioButton("Per Email (Paired Subject + Body rotates every email)")
+        self.rb_rot_random    = QRadioButton("Randomized (Paired Subject + Body picked randomly)")
+        self.rb_rot_per_smtp  = self.rb_rot_per_email  # backward-compatibility alias
+        self.rb_rot_per_email.setStyleSheet("color:#e8eaf0; font-size:11px; font-weight:600;")
         self.rb_rot_random.setStyleSheet("color:#e8eaf0; font-size:11px; font-weight:600;")
-        self.rb_rot_per_smtp.setToolTip("1 SMTP account will send all its emails using 1 Subject + Body. Switches to next pair when SMTP rotates.")
+        self.rb_rot_per_email.setToolTip("Subject and matching Body rotate sequentially with every email sent.")
         self.rb_rot_random.setToolTip("Each individual email gets a fresh random Subject and strictly matching Body.")
-        self.rb_rot_per_smtp.setChecked(True)
+        self.rb_rot_per_email.setChecked(True)
         rot_row.addWidget(rot_lbl)
-        rot_row.addWidget(self.rb_rot_per_smtp)
+        rot_row.addWidget(self.rb_rot_per_email)
         rot_row.addWidget(self.rb_rot_random)
         rot_row.addStretch()
         sl.addWidget(rot_box)
@@ -1837,7 +1838,7 @@ class TaskPanel(QWidget):
         s(pfx + "limit_per_smtp", str(self.spn_limit.value()))
         s(pfx + "auto_remove", "1" if self.chk_auto_remove.isChecked() else "0")
         s(pfx + "bounce_pct", str(self.spn_bounce.value()))
-        s(pfx + "rot_mode", "per_smtp" if getattr(self, 'rb_rot_per_smtp', None) and self.rb_rot_per_smtp.isChecked() else "random")
+        s(pfx + "rot_mode", "random" if (getattr(self, 'rb_rot_random', None) and self.rb_rot_random.isChecked()) else "per_email")
 
     def _load_settings(self):
         """Restore persisted task parameters from DB."""
@@ -1881,9 +1882,11 @@ class TaskPanel(QWidget):
         if v: self.cmb_img_format.setCurrentText(v)
 
         # Rotation mode
-        v = g(pfx + "rot_mode", "per_smtp")
+        v = g(pfx + "rot_mode", "per_email")
         if v == "random" and hasattr(self, 'rb_rot_random'):
             self.rb_rot_random.setChecked(True)
+        elif hasattr(self, 'rb_rot_per_email'):
+            self.rb_rot_per_email.setChecked(True)
         elif hasattr(self, 'rb_rot_per_smtp'):
             self.rb_rot_per_smtp.setChecked(True)
 
@@ -2072,7 +2075,7 @@ class TaskPanel(QWidget):
             if not templates and formatted_text:
                 templates = [formatted_text]
 
-        rotation_mode = "per_smtp" if getattr(self, 'rb_rot_per_smtp', None) and self.rb_rot_per_smtp.isChecked() else "random"
+        rotation_mode = "random" if getattr(self, 'rb_rot_random', None) and self.rb_rot_random.isChecked() else "per_email"
 
         config = {
             "templates":          templates,
