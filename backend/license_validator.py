@@ -84,10 +84,7 @@ def check_license_status() -> tuple[str, str]:
     except ValueError as e:
         return "no_license", str(e)
         
-    # Check machine ID match
-    current_machine = get_machine_id()
-    if payload.get("machine_id") != current_machine:
-        return "machine_mismatch", "This license is registered to another computer."
+    # Machine check relaxed: license belongs to user and is valid across any device until expiry date
         
     # Check Expiration
     expiry_str = payload.get("expiry")
