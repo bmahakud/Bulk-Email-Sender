@@ -7,6 +7,10 @@ import re
 from loguru import logger
 
 
+import random
+import string
+
+
 class TagEngine:
     """Replace tags in content with actual values"""
     
@@ -41,6 +45,7 @@ class TagEngine:
             "#USER#": recipient_data.get("email", "").split("@")[0] if "@" in recipient_data.get("email", "") else recipient_data.get("email", ""),
             "#COMPANY#": recipient_data.get("company", ""),
             "#INVOICE#": recipient_data.get("invoice", ""),
+            "#ORDERID#": str(recipient_data.get("orderid") or recipient_data.get("order_id") or f"ORD-{random.randint(100000, 999999)}"),
         }
         
         # Add custom tags from recipient data
@@ -62,6 +67,10 @@ class TagEngine:
             if tag in result:
                 result = result.replace(tag, func())
         
+        # Replace #RANDOM# with a fresh random number for uniqueness
+        while "#RANDOM#" in result:
+            result = result.replace("#RANDOM#", str(random.randint(100000, 999999)), 1)
+        
         return result
     
     @staticmethod
@@ -79,8 +88,11 @@ class TagEngine:
         all_tags.update({
             "#EMAIL#": True,
             "#NAME#": True,
+            "#USER#": True,
             "#COMPANY#": True,
             "#INVOICE#": True,
+            "#ORDERID#": True,
+            "#RANDOM#": True,
         })
         
         for tag in tags:
