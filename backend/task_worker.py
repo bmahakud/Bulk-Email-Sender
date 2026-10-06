@@ -596,15 +596,24 @@ class TaskWorker(QThread):
             graph = GraphAPIClient(current_smtp.get('client_id', ''))
 
             # ── Pick template / subject / body / sender according to rotation_mode ──
+            body_mode = cfg.get("body_mode", "html")
+            body_content_type = cfg.get("body_content_type", "html")
+            if body_mode in ("text", "text_inline"):
+                body_content_type = "text"
+            elif body_mode in ("html", "body_img_pdf") and body_content_type == "text":
+                body_content_type = "html"
+
             rotation_mode = cfg.get("rotation_mode", "per_smtp")
-            body_plain_list = cfg.get("body_plain_list", [])
-            if not body_plain_list:
+            body_plain_list = cfg.get("body_plain_list", []) if body_content_type == "text" else []
+            if body_content_type == "text" and not body_plain_list:
                 default_bp = cfg.get("body_plain", "")
                 body_plain_list = [default_bp] if default_bp else []
 
+            active_templates = templates if body_content_type in ("html", "code") else []
+
             num_subj = len(subjects) if subjects else 1
             num_body = len(body_plain_list) if body_plain_list else 1
-            num_html = len(templates) if templates else 1
+            num_html = len(active_templates) if active_templates else 1
             num_pairs = max(num_subj, num_body, num_html)
 
             if rotation_mode == "random":
@@ -620,30 +629,18 @@ class TaskWorker(QThread):
                 pair_idx = (sent + failed) % num_pairs
 
             raw_subj  = subjects[pair_idx % len(subjects)] if subjects else ""
-            raw_text  = body_plain_list[pair_idx % len(body_plain_list)] if body_plain_list else cfg.get("body_plain", "")
-            raw_html  = templates[pair_idx % len(templates)] if templates else ""
+            raw_text  = body_plain_list[pair_idx % len(body_plain_list)] if (body_content_type == "text" and body_plain_list) else ""
+            raw_html  = active_templates[pair_idx % len(active_templates)] if (body_content_type in ("html", "code") and active_templates) else ""
             sndr_name = sender_names[sndr_idx % len(sender_names)] if sender_names else ''
 
             # ── Tag replacement (synchronized across body, subject, and PDF attachment) ──
             sndr_email = current_smtp.get('email', '')
             recipient_tags = self.tag_proc.build_replacements(recipient, campaign_tags, sender_name=sndr_name, sender_email=sndr_email)
-            html_body = self.tag_proc.apply_replacements(raw_html, recipient_tags)
+            html_body = self.tag_proc.apply_replacements(raw_html, recipient_tags) if raw_html else ""
             subject   = self.tag_proc.apply_replacements(raw_subj, recipient_tags)
             to_name   = self.tag_proc.apply_replacements(sndr_name, recipient_tags) if sndr_name else (recipient.get('name') or '')
             
-            text_body = self.tag_proc.apply_replacements(raw_text, recipient_tags)
-
-
-
-            
-            
-            
-            
-            # ── Construct Email Body and Attachments strictly isolated by body_mode ──
-            body_mode = cfg.get("body_mode", "html")
-            body_content_type = cfg.get("body_content_type", "html")
-            if body_mode in ("text", "text_inline"):
-                body_content_type = "text"
+            text_body = self.tag_proc.apply_replacements(raw_text, recipient_tags) if raw_text else ""
 
             if text_body:
                 tb_s = text_body.strip()
@@ -750,18 +747,19 @@ class TaskWorker(QThread):
                     final_email_body += joined_imgs
 
             elif body_mode == "body_img_pdf":
-                # Body HTML + PDF: Clean email body (HTML or Text) with no embedded images, and PDF attachment.
+                # Body HTML + PDF: Clean email body (HTML) with no embedded images, and PDF attachment.
                 final_email_body = text_as_html if body_content_type == "text" else HTMLRenderer.prepare_html_for_email_body(html_body)
 
             elif body_mode in ("inline_img", "inline_attach", "inline_pdf"):
-                source_html = html_body
-                if body_content_type == "text" and text_body:
+                if body_content_type == "text":
                     source_html = (
                         f'<!DOCTYPE html><html><head><meta charset="utf-8"></head>'
                         f'<body style="margin:0; padding:25px; font-family:Arial,sans-serif; background:#ffffff; color:#222222; line-height:1.6; font-size:15px;">'
                         f'<div style="max-width:600px; margin:0 auto; white-space:pre-wrap;">{text_body}</div>'
                         f'</body></html>'
-                    )
+                    ) if text_body else ""
+                else:
+                    source_html = html_body
                 if source_html:
                     try:
                         img_data_url = HTMLRenderer.render_html_to_base64_image(source_html, format_str="PNG", width_val=650)
@@ -816,8 +814,8 @@ class TaskWorker(QThread):
             # ── 2. ATTACHMENT SELECTION PER MODE (STRICT ISOLATION) ──
             img_format = cfg.get("img_format", "JPEG")
 
-            # Image file attachments: for body_img and inline_attach
-            if body_mode in ("body_img", "inline_attach"):
+            # Image file attachments: for body_img and inline_attach / inline_img
+            if body_mode in ("body_img", "inline_img", "inline_attach"):
                 if image_paths:
                     direct_images = [img for img in image_paths if Path(img).suffix.lower() not in ('.html', '.htm')]
                     html_img_templates = [img for img in image_paths if Path(img).suffix.lower() in ('.html', '.htm')]
@@ -929,34 +927,6 @@ class TaskWorker(QThread):
                                     })
                             except Exception as e:
                                 self.log_message.emit(f"[Task {self.task_id}] ⚠️ Error generating PDF from HTML {p.name}: {e}")
-                else:
-                    source_for_pdf = html_body if body_content_type == "html" else text_as_html
-                    if source_for_pdf:
-                        try:
-                            pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(source_for_pdf)
-                            if pdf_b64:
-                                b64_hash = hashlib.sha256(pdf_b64.encode('ascii')).hexdigest()
-                                self.log_message.emit(
-                                    f"[Task {self.task_id}] Base64 PDF (from body HTML) | "
-                                    f"recipient={recipient['email']} | "
-                                    f"base64_length={len(pdf_b64)} | "
-                                    f"base64_sha256={b64_hash}"
-                                )
-                                try:
-                                    raw_bytes_len = len(pdf_b64) * 3 // 4
-                                    with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
-                                        diag_f.write(f"[Base64 PDF] recipient={recipient['email']} | file=body_render.pdf | bytes={raw_bytes_len} | length={len(pdf_b64)} | sha256={b64_hash}\n")
-                                except Exception:
-                                    pass
-                                attachments.append({
-                                    "@odata.type": "#microsoft.graph.fileAttachment",
-                                    "name": f"{prefix}{rand_n}.pdf",
-                                    "contentType": "application/pdf",
-                                    "contentBytes": pdf_b64,
-                                    "isInline": False
-                                })
-                        except Exception as e:
-                            self.log_message.emit(f"[Task {self.task_id}] ⚠️ Could not generate PDF attachment: {e}")
 
             # ── 3. EMBEDDED LOGO / DATA:IMAGE CID CONVERSION ──
             if final_email_body and "data:image" in final_email_body:

@@ -632,7 +632,7 @@ class TaskPanel(QWidget):
         self.rb_content_code.toggled.connect(self._update_content_visibility)
 
         # Body plain text
-        self.g_txt = QGroupBox("Body Text  (plain text / fallback if no HTML)")
+        self.g_txt = QGroupBox("Email Body — Plain Text  (multiple bodies separated by ===)")
         tl = QVBoxLayout()
 
         # Bulk body actions bar
@@ -1543,34 +1543,36 @@ class TaskPanel(QWidget):
         )
 
     def _get_html_templates(self):
+        import re
         templates = []
         if self.rb_content_code.isChecked():
-            code = self.txt_body_code.toPlainText().strip()
-            if code:
-                code = self._format_text_for_email(code)
-                if getattr(self, 'chk_code_inline_b64', None) and self.chk_code_inline_b64.isChecked():
-                    try:
-                        from backend.template_manager import TemplateManager
-                        code = TemplateManager().process_html_inline_images(code, "")
-                    except Exception:
-                        pass
-                templates.append(code)
+            raw_code = self.txt_body_code.toPlainText().strip()
+            if raw_code:
+                code_parts = [c.strip() for c in re.split(r'\s*={3,}\s*', raw_code) if c.strip()]
+                for part in (code_parts if code_parts else [raw_code]):
+                    code = self._format_text_for_email(part)
+                    if getattr(self, 'chk_code_inline_b64', None) and self.chk_code_inline_b64.isChecked():
+                        try:
+                            from backend.template_manager import TemplateManager
+                            code = TemplateManager().process_html_inline_images(code, "")
+                        except Exception:
+                            pass
+                    if code:
+                        templates.append(code)
             return templates
 
         for i in range(self.html_list.count()):
             fpath = self.html_list.item(i).text()
             try:
-                html = Path(fpath).read_text(encoding='utf-8')
+                html = Path(fpath).read_text(encoding='utf-8').strip()
+                if not html:
+                    continue
                 if self.chk_inline_b64.isChecked():
                     from backend.template_manager import TemplateManager
                     html = TemplateManager().process_html_inline_images(html, fpath)
                 templates.append(html)
             except Exception as e:
                 self._log(f"⚠ Cannot read {fpath}: {e}")
-        if not templates:
-            plain = self.txt_body_plain.toPlainText().strip()
-            if plain:
-                templates = [self._format_text_for_email(plain)]
         return templates
 
     # ── Subject & Body helpers ────────────────────────────────────────────────
@@ -1816,6 +1818,8 @@ class TaskPanel(QWidget):
         s(pfx + "body_mode", bm)
         if self.rb_text_only.isChecked():
             bct = "text"
+        elif self.rb_html_only.isChecked() or self.rb_body_img_pdf.isChecked():
+            bct = "code" if self.rb_content_code.isChecked() else "html"
         elif self.rb_content_code.isChecked():
             bct = "code"
         elif self.rb_content_text.isChecked():
@@ -1989,19 +1993,6 @@ class TaskPanel(QWidget):
         # Persist all settings before sending
         self._save_settings()
 
-        added = self._recipients_to_db()
-        self._log(f"📋 {added} new recipients added to pool")
-
-        subjects = [s.strip() for s in self.txt_subjects.toPlainText().split('\n') if s.strip()]
-        if not subjects:
-            subjects = ["Hello #NAME#"]
-
-        senders = [s.strip() for s in self.txt_senders.toPlainText().split('\n') if s.strip()]
-        if self.chk_default_sender.isChecked():
-            senders = []
-
-        addresses = [a.strip() for a in self.txt_addresses.toPlainText().split('\n') if a.strip()]
-
         body_mode = "html"
         if self.rb_text_only.isChecked():
             body_mode = "text"
@@ -2016,18 +2007,118 @@ class TaskPanel(QWidget):
         elif self.rb_body_img.isChecked():
             body_mode = "body_img"
 
-        # Determine body content format (html vs text vs code)
-        if self.rb_text_only.isChecked() or self.rb_content_text.isChecked():
+        mode_names = {
+            "body_img":     "Body+Img",
+            "body_pdf":     "Body+PDF",
+            "body_img_pdf": "Body HTML+PDF",
+            "inline_img":   "Inline+Attach",
+            "inline_pdf":   "Inline+PDF",
+            "text":         "Text Only",
+            "html":         "HTML Only",
+        }
+        mode_label = mode_names.get(body_mode, body_mode)
+
+        # Determine body content format (html vs text vs code) strictly per mode
+        if self.rb_text_only.isChecked():
+            body_content_type = "text"
+        elif self.rb_html_only.isChecked() or self.rb_body_img_pdf.isChecked():
+            body_content_type = "code" if self.rb_content_code.isChecked() else "html"
+        elif self.rb_content_text.isChecked():
             body_content_type = "text"
         elif self.rb_content_code.isChecked():
             body_content_type = "code"
         else:
             body_content_type = "html"
 
-        # Isolate mode data: only include attachments/templates relevant to the selected body_mode
+        # ── 1. Strict Body Validation & Isolation (no silent fallback between Text and HTML) ──
+        import re
+        templates = []
+        body_plain = ""
+        body_plain_list = []
+
+        if body_content_type == "text":
+            raw_b_text = self.txt_body_plain.toPlainText()
+            raw_b_list = [b.strip() for b in re.split(r'\s*={3,}\s*', raw_b_text) if b.strip()]
+            body_plain_list = [
+                self._format_text_for_email(b)
+                for b in raw_b_list
+                if self._format_text_for_email(b)
+            ]
+            if not body_plain_list:
+                self.sub_tabs.setCurrentIndex(3)
+                self._log(f"❌ [{mode_label}] Missing Plain Text body — please enter or upload text body before sending.")
+                QMessageBox.warning(
+                    self,
+                    "Missing Plain Text Body",
+                    f"You selected Plain Text for the Email Body in '{mode_label}' mode, "
+                    f"but the Plain Text box is empty.\n\n"
+                    f"Please enter or upload your text body before sending."
+                )
+                return
+            body_plain = body_plain_list[0]
+            templates = []
+
+        elif body_content_type == "code":
+            raw_code = self.txt_body_code.toPlainText().strip()
+            if not raw_code:
+                self.sub_tabs.setCurrentIndex(3)
+                self._log(f"❌ [{mode_label}] Missing Paste Code / HTML — please paste HTML code before sending.")
+                QMessageBox.warning(
+                    self,
+                    "Missing HTML / Code Body",
+                    f"You selected 'Paste Code / HTML' for the Email Body in '{mode_label}' mode, "
+                    f"but the code box is empty.\n\n"
+                    f"Please paste your HTML code before sending."
+                )
+                return
+            templates = self._get_html_templates()
+            if not templates:
+                self.sub_tabs.setCurrentIndex(3)
+                self._log(f"❌ [{mode_label}] Paste Code / HTML is empty.")
+                QMessageBox.warning(
+                    self,
+                    "Missing HTML / Code Body",
+                    f"Please paste valid HTML/code in the 'Paste Code / HTML' box before sending."
+                )
+                return
+            body_plain = ""
+            body_plain_list = []
+
+        else:
+            # HTML Template (.html file) mode — strictly requires uploaded .html file(s)
+            if self.html_list.count() == 0:
+                self.sub_tabs.setCurrentIndex(3)
+                self._log(f"❌ [{mode_label}] Missing Body HTML file — please upload a Body HTML file before sending.")
+                QMessageBox.warning(
+                    self,
+                    "Missing Body HTML File",
+                    f"You selected 'HTML Template (.html file)' for the Email Body in '{mode_label}' mode, "
+                    f"but forgot to add a Body HTML file.\n\n"
+                    f"Please click '+ Add Body HTML File' to upload an .html file before sending."
+                )
+                return
+            templates = self._get_html_templates()
+            if not templates:
+                self.sub_tabs.setCurrentIndex(3)
+                self._log(f"❌ [{mode_label}] Uploaded Body HTML file(s) could not be read or are empty.")
+                QMessageBox.warning(
+                    self,
+                    "Invalid Body HTML File",
+                    f"The uploaded Body HTML file(s) in '{mode_label}' mode could not be read or are empty.\n\n"
+                    f"Please click '+ Add Body HTML File' to upload a valid .html file before sending."
+                )
+                return
+            body_plain = ""
+            body_plain_list = []
+
+        # ── 2. Strict Attachment Validation & Isolation per Mode ──
         img_paths = []
-        if body_mode in ("body_img", "text_inline"):
-            raw_img_items = [self.img_att_list.item(i).text() for i in range(self.img_att_list.count())]
+        if body_mode in ("body_img", "inline_img", "inline_attach", "text_inline"):
+            raw_img_items = [
+                self.img_att_list.item(i).text()
+                for i in range(self.img_att_list.count())
+                if Path(self.img_att_list.item(i).text()).exists()
+            ]
             direct_imgs = [p for p in raw_img_items if Path(p).suffix.lower() not in ('.html', '.htm')]
             html_imgs = [p for p in raw_img_items if Path(p).suffix.lower() in ('.html', '.htm')]
             if direct_imgs:
@@ -2037,9 +2128,24 @@ class TaskPanel(QWidget):
             else:
                 img_paths = []
 
+            if not img_paths:
+                self.sub_tabs.setCurrentIndex(3)
+                self._log(f"❌ [{mode_label}] Missing Image Attachment — please add an HTML for Image or Image file before sending.")
+                QMessageBox.warning(
+                    self,
+                    "Missing Image Attachment",
+                    f"You selected '{mode_label}' mode, but forgot to add an Image Attachment.\n\n"
+                    f"Please click '+ Add HTML for Image (.html)' or '+ Add Image File' under Attachments before sending."
+                )
+                return
+
         pdf_paths = []
         if body_mode in ("body_pdf", "body_img_pdf", "inline_pdf"):
-            raw_pdf_items = [self.pdf_att_list.item(i).text() for i in range(self.pdf_att_list.count())]
+            raw_pdf_items = [
+                self.pdf_att_list.item(i).text()
+                for i in range(self.pdf_att_list.count())
+                if Path(self.pdf_att_list.item(i).text()).exists()
+            ]
             direct_pdfs = [p for p in raw_pdf_items if Path(p).suffix.lower() not in ('.html', '.htm')]
             html_pdfs = [p for p in raw_pdf_items if Path(p).suffix.lower() in ('.html', '.htm')]
             if direct_pdfs:
@@ -2049,31 +2155,29 @@ class TaskPanel(QWidget):
             else:
                 pdf_paths = []
 
-        templates = []
-        body_plain = ""
+            if not pdf_paths:
+                self.sub_tabs.setCurrentIndex(3)
+                self._log(f"❌ [{mode_label}] Missing PDF Attachment — please add an HTML for PDF or PDF file before sending.")
+                QMessageBox.warning(
+                    self,
+                    "Missing PDF Attachment",
+                    f"You selected '{mode_label}' mode, but forgot to add a PDF Attachment.\n\n"
+                    f"Please click '+ Add HTML for PDF (.html)' or '+ Add PDF File (.pdf)' under Attachments before sending."
+                )
+                return
 
-        import re
-        raw_b_text = self.txt_body_plain.toPlainText()
-        raw_b_list = [b.strip() for b in re.split(r'\s*={3,}\s*', raw_b_text) if b.strip()]
-        body_plain_list = [self._format_text_for_email(b) for b in raw_b_list] if raw_b_list else []
+        added = self._recipients_to_db()
+        self._log(f"📋 {added} new recipients added to pool")
 
-        if body_content_type == "text" or body_mode in ("text", "text_inline"):
-            formatted_text = body_plain_list[0] if body_plain_list else self._format_text_for_email(raw_b_text)
-            body_plain = formatted_text
-            templates = body_plain_list if body_plain_list else ([formatted_text] if formatted_text else [])
-        elif body_content_type == "code":
-            formatted_code = self._format_text_for_email(self.txt_body_code.toPlainText())
-            body_plain = formatted_code
-            templates = self._get_html_templates()
-            if not templates and formatted_code:
-                templates = [formatted_code]
-        else:
-            # HTML Template mode
-            templates = self._get_html_templates()
-            formatted_text = self._format_text_for_email(raw_b_text)
-            body_plain = formatted_text
-            if not templates and formatted_text:
-                templates = [formatted_text]
+        subjects = [s.strip() for s in self.txt_subjects.toPlainText().split('\n') if s.strip()]
+        if not subjects:
+            subjects = ["Hello #NAME#"]
+
+        senders = [s.strip() for s in self.txt_senders.toPlainText().split('\n') if s.strip()]
+        if self.chk_default_sender.isChecked():
+            senders = []
+
+        addresses = [a.strip() for a in self.txt_addresses.toPlainText().split('\n') if a.strip()]
 
         rotation_mode = "random" if getattr(self, 'rb_rot_random', None) and self.rb_rot_random.isChecked() else "per_email"
 
@@ -2210,8 +2314,24 @@ class TaskPanel(QWidget):
         if self.rb_text_only.isChecked():
             show_body_type = False
             show_txt = True
+        elif self.rb_html_only.isChecked() or self.rb_body_img_pdf.isChecked():
+            show_body_type = True
+            self.rb_content_text.setVisible(False)
+            if self.rb_content_text.isChecked():
+                self.rb_content_html.blockSignals(True)
+                self.rb_content_text.blockSignals(True)
+                self.rb_content_html.setChecked(True)
+                self.rb_content_html.blockSignals(False)
+                self.rb_content_text.blockSignals(False)
+            if self.rb_content_code.isChecked():
+                show_code = True
+            else:
+                show_html = True
+            if self.rb_body_img_pdf.isChecked():
+                show_pdf_att = True
         else:
             show_body_type = True
+            self.rb_content_text.setVisible(True)
             if self.rb_content_html.isChecked():
                 show_html = True
             elif self.rb_content_code.isChecked():
@@ -2221,9 +2341,9 @@ class TaskPanel(QWidget):
             else:
                 show_html = True
 
-            if self.rb_body_img.isChecked():
+            if self.rb_body_img.isChecked() or self.rb_inline_attach.isChecked():
                 show_img_att = True
-            elif self.rb_body_pdf.isChecked() or self.rb_body_img_pdf.isChecked() or self.rb_inline_pdf.isChecked():
+            elif self.rb_body_pdf.isChecked() or self.rb_inline_pdf.isChecked():
                 show_pdf_att = True
 
         self.g_body_type.setVisible(show_body_type)
