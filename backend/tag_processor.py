@@ -103,8 +103,8 @@ class TagProcessor:
     @staticmethod
     def _rand_amount(mode: str = "random", custom: str = "200.00",
                      min_val: float = 100.0, max_val: float = 300.0) -> str:
-        if mode == "custom":
-            return custom
+        if mode == "custom" and custom and str(custom).strip():
+            return str(custom).strip()
         cents = random.randint(int(min_val * 100), int(max_val * 100))
         return f"{cents / 100:.2f}"
 
