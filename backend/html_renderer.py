@@ -768,7 +768,12 @@ class HTMLRenderer:
 
         top_m, right_m, bot_m, left_m = margins_mm
 
-        def _run_print(cur_h_mm: float, zoom_factor: float = 1.0, auto_js_fit: str = "named") -> Tuple[bool, int]:
+        def _run_print(
+            cur_h_mm: float,
+            zoom_factor: float = 1.0,
+            auto_js_fit: str = "named",
+            pad_mm: float = 2.0,
+        ) -> Tuple[bool, int]:
             uid = uuid.uuid4().hex[:10]
             tmp_dir = Path(tempfile.gettempdir()) / f"pm_pdf_{uid}"
             prof_dir = tmp_dir / "prof"
@@ -780,17 +785,22 @@ class HTMLRenderer:
                 # Remove existing @page rules so our exact tight-height @page rule takes full effect
                 cleaned_html = re.sub(r'@page\s*\{[^}]*\}', '', html_content, flags=re.I | re.S)
                 zoom_rule = f"html, body {{ zoom: {zoom_factor}; }}" if zoom_factor < 1.0 else ""
+                tight_bot_m = min(bot_m, 4.0)
+                base_css_rules = (
+                    f"@media print, screen {{\n"
+                    f"  * {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }}\n"
+                    f"  html, body {{ margin: 0 !important; padding: 0 !important; }}\n"
+                    f"  .page, .a4-page, .pdf-page {{ page-break-inside: avoid; break-inside: avoid; padding-bottom: 2px !important; margin-bottom: 0 !important; }}\n"
+                    f"  {zoom_rule}\n"
+                    f"}}\n"
+                )
                 print_css = (
                     f"<style id=\"pm-base-print-style\">\n"
                     f"@page {{\n"
                     f"  size: {w_mm:.1f}mm {cur_h_mm:.1f}mm;\n"
-                    f"  margin: {top_m:.1f}mm {right_m:.1f}mm {bot_m:.1f}mm {left_m:.1f}mm;\n"
+                    f"  margin: {top_m:.1f}mm {right_m:.1f}mm {tight_bot_m:.1f}mm {left_m:.1f}mm;\n"
                     f"}}\n"
-                    f"@media print, screen {{\n"
-                    f"  * {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }}\n"
-                    f"  .page {{ page-break-inside: avoid; break-inside: avoid; }}\n"
-                    f"  {zoom_rule}\n"
-                    f"}}\n"
+                    f"{base_css_rules}"
                     f"</style>"
                 )
 
@@ -803,39 +813,69 @@ class HTMLRenderer:
                         f"  try {{\n"
                         f"    var wMm = {w_mm:.2f};\n"
                         f"    var stdHMm = {std_h_mm:.2f};\n"
-                        f"    var topM = {top_m:.2f}, rightM = {right_m:.2f}, botM = {bot_m:.2f}, leftM = {left_m:.2f};\n"
+                        f"    var topM = {top_m:.2f}, rightM = {right_m:.2f}, botM = {tight_bot_m:.2f}, leftM = {left_m:.2f};\n"
+                        f"    var padMm = {pad_mm:.2f};\n"
+                        f"    var printWMm = Math.max(60, wMm - leftM - rightM);\n"
                         f"    var useNamed = {use_named_js};\n"
-                        f"    var pages = document.querySelectorAll('.page, .a4-page, .pdf-page');\n"
-                        f"    var cssOut = '';\n"
+                        f"    var origBodyW = document.body.style.width;\n"
+                        f"    document.body.style.width = printWMm + 'mm';\n"
+                        f"    var pages = document.querySelectorAll('.page, .a4-page, .pdf-page, [class*=\"page-container\"]');\n"
+                        f"    if (pages.length === 0) {{\n"
+                        f"      var topBlocks = document.querySelectorAll('body > div, body > section, body > article');\n"
+                        f"      if (topBlocks.length > 1) pages = topBlocks;\n"
+                        f"    }}\n"
+                        f"    var pageRules = '';\n"
+                        f"    var elemRules = '';\n"
                         f"    if (pages.length > 1) {{\n"
                         f"      var maxMm = 0;\n"
+                        f"      var hList = [];\n"
                         f"      for (var i = 0; i < pages.length; i++) {{\n"
+                        f"        pages[i].style.minHeight = '0';\n"
+                        f"        pages[i].style.height = 'auto';\n"
+                        f"        pages[i].style.marginBottom = '0';\n"
+                        f"        pages[i].style.paddingBottom = '2px';\n"
                         f"        var rect = pages[i].getBoundingClientRect();\n"
-                        f"        var hMm = Math.ceil((rect.height * 25.4 / 96.0) + topM + botM + 6.0);\n"
-                        f"        if (hMm < 80) hMm = 80;\n"
+                        f"        var hMm = Math.ceil((rect.height * 25.4 / 96.0) + topM + botM + padMm);\n"
+                        f"        if (hMm < 60) hMm = 60;\n"
                         f"        if (hMm > stdHMm) hMm = stdHMm;\n"
                         f"        if (hMm > maxMm) maxMm = hMm;\n"
-                        f"        if (useNamed) {{\n"
-                        f"          cssOut += '@page pm_p' + i + ' {{ size: ' + wMm + 'mm ' + hMm + 'mm !important; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm !important; }}\\n';\n"
-                        f"          cssOut += '.pm-page-idx-' + i + ' {{ page: pm_p' + i + '; }}\\n';\n"
-                        f"          pages[i].classList.add('pm-page-idx-' + i);\n"
-                        f"        }}\n"
+                        f"        hList.push(hMm);\n"
                         f"      }}\n"
-                        f"      if (maxMm > 80) {{\n"
-                        f"        cssOut += '@page {{ size: ' + wMm + 'mm ' + maxMm + 'mm !important; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm !important; }}\\n';\n"
+                        f"      if (maxMm >= 60) {{\n"
+                        f"        pageRules += '@page {{ size: ' + wMm + 'mm ' + maxMm + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }}\\n';\n"
+                        f"      }}\n"
+                        f"      for (var j = 0; j < pages.length; j++) {{\n"
+                        f"        if (useNamed) {{\n"
+                        f"          pageRules += '@page pm_p' + j + ' {{ size: ' + wMm + 'mm ' + hList[j] + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }}\\n';\n"
+                        f"          elemRules += '.pm-page-idx-' + j + ' {{ page: pm_p' + j + '; page-break-after: auto !important; break-after: auto !important; page-break-before: auto !important; break-before: auto !important; margin-bottom: 0 !important; padding-bottom: 2px !important; }}\\n';\n"
+                        f"          pages[j].classList.add('pm-page-idx-' + j);\n"
+                        f"        }} else if (j === pages.length - 1) {{\n"
+                        f"          elemRules += '.pm-last-page-idx {{ page-break-after: auto !important; break-after: auto !important; margin-bottom: 0 !important; padding-bottom: 2px !important; }}\\n';\n"
+                        f"          pages[j].classList.add('pm-last-page-idx');\n"
+                        f"        }}\n"
                         f"      }}\n"
                         f"    }} else {{\n"
                         f"      var targetEl = (pages.length === 1) ? pages[0] : document.body;\n"
+                        f"      targetEl.style.minHeight = '0';\n"
+                        f"      targetEl.style.height = 'auto';\n"
+                        f"      targetEl.style.paddingBottom = '2px';\n"
                         f"      var bHeight = targetEl.getBoundingClientRect().height;\n"
-                        f"      var singleHMm = Math.ceil((bHeight * 25.4 / 96.0) + topM + botM + 6.0);\n"
-                        f"      if (singleHMm >= 80 && singleHMm < stdHMm - 10) {{\n"
-                        f"        cssOut += '@page {{ size: ' + wMm + 'mm ' + singleHMm + 'mm !important; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm !important; }}\\n';\n"
+                        f"      var singleHMm = Math.ceil((bHeight * 25.4 / 96.0) + topM + botM + padMm);\n"
+                        f"      if (singleHMm >= 60 && singleHMm < stdHMm - 5) {{\n"
+                        f"        pageRules += '@page {{ size: ' + wMm + 'mm ' + singleHMm + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }}\\n';\n"
                         f"      }}\n"
                         f"    }}\n"
-                        f"    if (cssOut) {{\n"
-                        f"      var st = document.createElement('style');\n"
-                        f"      st.innerHTML = cssOut;\n"
-                        f"      document.head.appendChild(st);\n"
+                        f"    document.body.style.width = origBodyW;\n"
+                        f"    if (pageRules || elemRules) {{\n"
+                        f"      var baseSt = document.getElementById('pm-base-print-style');\n"
+                        f"      var commonCss = '@media print, screen {{ * {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }} html, body {{ margin: 0 !important; padding: 0 !important; }} .page, .a4-page, .pdf-page {{ page-break-inside: avoid; break-inside: avoid; padding-bottom: 2px !important; margin-bottom: 0 !important; }} }}';\n"
+                        f"      if (baseSt) {{\n"
+                        f"        baseSt.textContent = pageRules + '\\n' + commonCss + '\\n' + elemRules;\n"
+                        f"      }} else {{\n"
+                        f"        var st = document.createElement('style');\n"
+                        f"        st.textContent = pageRules + '\\n' + commonCss + '\\n' + elemRules;\n"
+                        f"        document.head.appendChild(st);\n"
+                        f"      }}\n"
                         f"    }}\n"
                         f"  }} catch (e) {{}}\n"
                         f"}})();\n"
@@ -894,20 +934,23 @@ class HTMLRenderer:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
         # Pass 1: Per-page exact DOM measurement in Chromium (named @page per .page block)
-        ok, actual_pages = _run_print(tight_h_mm, 1.0, auto_js_fit="named")
-        if not ok:
-            return False
-        if actual_pages == expected_pages:
-            return True
+        for pad_try in (2.0, 5.0, 9.0, 14.0):
+            ok, actual_pages = _run_print(tight_h_mm, 1.0, auto_js_fit="named", pad_mm=pad_try)
+            if not ok:
+                return False
+            if actual_pages == expected_pages:
+                return True
 
-        # Pass 2: Uniform tight height measured directly in Chromium DOM
-        ok_u, pages_u = _run_print(tight_h_mm, 1.0, auto_js_fit="uniform")
-        if ok_u and pages_u == expected_pages:
-            return True
+        # Pass 2: Uniform tight height measured directly in Chromium DOM across all pages
+        pages_u = 0
+        for pad_try in (2.0, 6.0, 11.0, 18.0):
+            ok_u, pages_u = _run_print(tight_h_mm, 1.0, auto_js_fit="uniform", pad_mm=pad_try)
+            if ok_u and pages_u == expected_pages:
+                return True
 
         # Pass 3: Step height up or zoom if template content exceeded standard height
         if expected_pages >= 1 and pages_u > expected_pages:
-            for candidate_h in (min(std_h_mm, tight_h_mm + 20.0), min(std_h_mm, tight_h_mm + 40.0), std_h_mm):
+            for candidate_h in (min(std_h_mm, tight_h_mm + 12.0), min(std_h_mm, tight_h_mm + 24.0), std_h_mm):
                 ok_h, pages_h = _run_print(candidate_h, 1.0, auto_js_fit="none")
                 if ok_h and pages_h <= expected_pages:
                     return True
@@ -978,11 +1021,10 @@ class HTMLRenderer:
                 chunk_heights_px.append(tmp_doc.size().height())
 
             max_chunk_px = max(chunk_heights_px) if chunk_heights_px else 0.0
-            # Account for ~1.16x vertical line-height/margin difference in Chromium vs QTextDocument
-            browser_est_h_mm = (max_chunk_px * 1.16 * 25.4 / 96.0) + top_m + bot_m + 8.0
+            browser_est_h_mm = (max_chunk_px * 1.02 * 25.4 / 96.0) + top_m + min(bot_m, 4.0) + 3.0
 
             if len(page_htmls) > 1 or expected_pages == 1:
-                if 80.0 < browser_est_h_mm < (std_h_mm - 12.0):
+                if 60.0 < browser_est_h_mm < (std_h_mm - 5.0):
                     tight_h_mm = browser_est_h_mm
                 else:
                     tight_h_mm = std_h_mm
