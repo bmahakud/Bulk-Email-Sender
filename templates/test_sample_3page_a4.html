@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Enterprise Invoice, Specification & SLA #INVOICE#</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #1e293b;
+    background-color: #ffffff;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .page {
+    width: 100%;
+    max-width: 190mm;
+    margin: 0 auto;
+    padding: 10px;
+  }
+  .page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+  .header-table {
+    width: 100%;
+    border-bottom: 2px solid #0284c7;
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+  .company-name {
+    font-size: 24px;
+    font-weight: 800;
+    color: #0369a1;
+  }
+  .invoice-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: #0f172a;
+    text-align: right;
+  }
+  .meta-grid {
+    width: 100%;
+    margin-bottom: 16px;
+  }
+  .meta-cell {
+    vertical-align: top;
+    font-size: 12px;
+  }
+  .meta-label {
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    font-size: 10px;
+    margin-bottom: 2px;
+  }
+  .meta-val {
+    color: #0f172a;
+    font-weight: 600;
+  }
+  .items-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+  }
+  .items-table th {
+    background-color: #f0f9ff;
+    color: #0369a1;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 8px 10px;
+    border-top: 1px solid #bae6fd;
+    border-bottom: 1px solid #bae6fd;
+    text-align: left;
+  }
+  .items-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 12px;
+  }
+  .totals-table {
+    width: 260px;
+    margin-left: auto;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+  }
+  .totals-table td {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+  .grand-row td {
+    border-top: 2px solid #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+    color: #0369a1;
+    padding-top: 6px;
+  }
+  .notice-box {
+    background-color: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-left: 4px solid #0284c7;
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: #0c4a6e;
+    margin-bottom: 12px;
+  }
+  .page-footer-note {
+    text-align: center;
+    font-size: 10.5px;
+    color: #94a3b8;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 8px;
+  }
+  .section-heading {
+    font-size: 17px;
+    font-weight: 800;
+    color: #0369a1;
+    border-bottom: 1.5px solid #cbd5e1;
+    padding-bottom: 6px;
+    margin-bottom: 14px;
+  }
+  .spec-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  .spec-card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 6px;
+  }
+  .terms-section {
+    margin-bottom: 14px;
+  }
+  .terms-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 4px;
+  }
+  .terms-body {
+    font-size: 11.5px;
+    color: #475569;
+    line-height: 1.5;
+  }
+  .signature-table {
+    width: 100%;
+    margin-top: 25px;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 15px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ========================================== -->
+<!-- PAGE 1: OFFICIAL INVOICE & BILLING SUMMARY -->
+<!-- ========================================== -->
+<div class="page page-break">
+  <table class="header-table" width="100%">
+    <tr>
+      <td width="60%">
+        <div class="company-name">Vanguard Cloud Systems</div>
+        <div style="font-size: 11px; color: #64748b;">Global Cloud Infrastructure, Security & Billing Division</div>
+      </td>
+      <td width="40%" align="right">
+        <div class="invoice-title">COMMERCIAL INVOICE</div>
+        <div style="font-size: 11px; color: #64748b; font-weight: 600;">Invoice #: #INVOICE#</div>
+        <div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Page 1 of 3</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="meta-grid" width="100%">
+    <tr>
+      <td class="meta-cell" width="35%">
+        <div class="meta-label">Billed To</div>
+        <div class="meta-val">#NAME#</div>
+        <div style="color: #64748b;">#EMAIL#</div>
+        <div style="color: #64748b;">#ADDRESS#</div>
+      </td>
+      <td class="meta-cell" width="35%">
+        <div class="meta-label">Transaction Details</div>
+        <div>Order Reference: <span class="meta-val">#ORDERID#</span></div>
+        <div>Transaction ID: <span class="meta-val">#TXNID#</span></div>
+        <div>Payment Method: <span class="meta-val">#TYPE#</span></div>
+      </td>
+      <td class="meta-cell" width="30%" align="right">
+        <div class="meta-label">Statement Date</div>
+        <div class="meta-val">#DATE#</div>
+        <div style="color: #64748b;">#TIME#</div>
+        <div style="margin-top: 6px; display: inline-block; padding: 2px 8px; background: #dcfce7; color: #15803d; font-weight: 700; border-radius: 4px; font-size: 10px;">PAID &amp; CONFIRMED</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th width="50%">Service &amp; License Description</th>
+        <th width="12%" style="text-align: center;">Qty</th>
+        <th width="18%" style="text-align: right;">Unit Price</th>
+        <th width="20%" style="text-align: right;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <strong>Vanguard Enterprise Cloud Cluster (Tier-4 Dedicated)</strong><br>
+          <span style="color: #64748b; font-size: 11px;">High-availability compute instance with multi-zone replication</span>
+        </td>
+        <td style="text-align: center;">1</td>
+        <td style="text-align: right;">$#AMOUNT#</td>
+        <td style="text-align: right; font-weight: 600;">$#AMOUNT#</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>Zero-Trust Endpoint Firewall &amp; Threat Telemetry</strong><br>
+          <span style="color: #64748b; font-size: 11px;">24/7 SOC monitoring and automated DDoS mitigation</span>
+        </td>
+        <td style="text-align: center;">1</td>
+        <td style="text-align: right;">$0.00</td>
+        <td style="text-align: right; font-weight: 600;">INCLUDED</td>
+      </tr>
+      <tr>
+        <td>
+          <strong>24/7 Priority Technical Support &amp; Billing Concierge</strong><br>
+          <span style="color: #64748b; font-size: 11px;">Direct phone support via #TFN1# | Ref: #RANDOM#</span>
+        </td>
+        <td style="text-align: center;">1</td>
+        <td style="text-align: right;">$0.00</td>
+        <td style="text-align: right; font-weight: 600;">INCLUDED</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table class="totals-table">
+    <tr>
+      <td style="color: #64748b;">Subtotal:</td>
+      <td style="text-align: right; font-weight: 600;">$#AMOUNT#</td>
+    </tr>
+    <tr>
+      <td style="color: #64748b;">Tax / Regulatory Fee (0%):</td>
+      <td style="text-align: right; font-weight: 600;">$0.00</td>
+    </tr>
+    <tr class="grand-row">
+      <td>Total Charged:</td>
+      <td style="text-align: right;">$#AMOUNT#</td>
+    </tr>
+  </table>
+
+  <div class="notice-box">
+    <strong>Important Billing Information:</strong><br>
+    This charge of <strong>$#AMOUNT#</strong> appears on your statement under Vanguard Cloud Systems. Please review Page 2 for Technical Provisioning Details and Page 3 for Terms of Service &amp; Refund Policy. For immediate assistance, call <strong>#TFN1#</strong>.
+  </div>
+
+  <div class="page-footer-note">
+    Page 1 of 3 &bull; Invoice #: #INVOICE# &bull; Order: #ORDERID# &bull; Billed to #EMAIL#
+  </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 2: TECHNICAL PROVISIONING & INFRASTRUCTURE SCHEDULE  -->
+<!-- ========================================================= -->
+<div class="page page-break">
+  <table class="header-table" width="100%">
+    <tr>
+      <td width="60%">
+        <div class="company-name" style="font-size: 20px;">Vanguard Cloud Systems</div>
+        <div style="font-size: 11px; color: #64748b;">Technical Provisioning &amp; Resource Allocation Schedule</div>
+      </td>
+      <td width="40%" align="right">
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a;">TECHNICAL SCHEDULE</div>
+        <div style="font-size: 11px; color: #64748b;">Order: #ORDERID#</div>
+        <div style="font-size: 10px; color: #94a3b8;">Page 2 of 3</div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="section-heading">Provisioned Resource &amp; Security Allocation</div>
+
+  <div class="spec-card">
+    <div class="spec-card-title">1. Compute &amp; Storage Node Configuration</div>
+    <table class="items-table" style="margin-bottom: 4px;">
+      <thead>
+        <tr>
+          <th width="35%">Component</th>
+          <th width="45%">Specification</th>
+          <th width="20%">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Primary Cluster ID</strong></td>
+          <td>VCS-NODE-#RANDOM#</td>
+          <td style="color: #15803d; font-weight: 700;">ACTIVE</td>
+        </tr>
+        <tr>
+          <td><strong>Storage Volume</strong></td>
+          <td>2.0 TB NVMe Encrypted Block Storage (RAID-10)</td>
+          <td style="color: #15803d; font-weight: 700;">MOUNTED</td>
+        </tr>
+        <tr>
+          <td><strong>Network Throughput</strong></td>
+          <td>10 Gbps Redundant Uplink (Unmetered Enterprise Tier)</td>
+          <td style="color: #15803d; font-weight: 700;">VERIFIED</td>
+        </tr>
+        <tr>
+          <td><strong>Backup Schedule</strong></td>
+          <td>Automated Daily Snapshots (30-Day Retention)</td>
+          <td style="color: #15803d; font-weight: 700;">ENABLED</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="spec-card">
+    <div class="spec-card-title">2. Security &amp; Access Audit Log</div>
+    <table class="items-table" style="margin-bottom: 4px;">
+      <thead>
+        <tr>
+          <th width="35%">Security Parameter</th>
+          <th width="45%">Assigned Value</th>
+          <th width="20%">Verification</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Authorized Account</strong></td>
+          <td>#EMAIL# (#NAME#)</td>
+          <td style="color: #0369a1; font-weight: 700;">CONFIRMED</td>
+        </tr>
+        <tr>
+          <td><strong>SSL / TLS Certificate</strong></td>
+          <td>256-Bit Wildcard Enterprise SSL (Auto-Renew)</td>
+          <td style="color: #0369a1; font-weight: 700;">ISSUED</td>
+        </tr>
+        <tr>
+          <td><strong>Transaction Audit Hash</strong></td>
+          <td>#TXNID#</td>
+          <td style="color: #0369a1; font-weight: 700;">LOGGED</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="notice-box">
+    <strong>Technical Support Escalation:</strong><br>
+    To modify your cluster configuration, request IP whitelisting, or pause this deployment, please contact our Technical Operations Desk at <strong>#TFN1#</strong> or <strong>#TFN2#</strong> and quote Order ID <strong>#ORDERID#</strong>.
+  </div>
+
+  <div class="page-footer-note">
+    Page 2 of 3 &bull; Technical Schedule &bull; Invoice #: #INVOICE# &bull; Support: #TFN1#
+  </div>
+</div>
+
+<!-- ========================================== -->
+<!-- PAGE 3: MASTER TERMS OF SERVICE & SIGN-OFF -->
+<!-- ========================================== -->
+<div class="page">
+  <table class="header-table" width="100%">
+    <tr>
+      <td width="60%">
+        <div class="company-name" style="font-size: 20px;">Vanguard Cloud Systems</div>
+        <div style="font-size: 11px; color: #64748b;">Master Service Level Agreement &amp; Compliance Terms</div>
+      </td>
+      <td width="40%" align="right">
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a;">TERMS &amp; CONDITIONS</div>
+        <div style="font-size: 11px; color: #64748b;">Ref: #INVOICE#</div>
+        <div style="font-size: 10px; color: #94a3b8;">Page 3 of 3</div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="section-heading">Master Terms and Service Level Agreement</div>
+
+  <div class="terms-section">
+    <div class="terms-title">1. Service Availability &amp; Performance Guarantee</div>
+    <div class="terms-body">
+      Vanguard Cloud Systems guarantees 99.99% network and power availability for all dedicated cluster deployments. In the event of an unscheduled service interruption exceeding fifteen (15) consecutive minutes, the customer (#NAME# / #EMAIL#) is eligible for a pro-rated service credit upon request.
+    </div>
+  </div>
+
+  <div class="terms-section">
+    <div class="terms-title">2. Billing Authorization &amp; Renewal Cycle</div>
+    <div class="terms-body">
+      The remitted amount of <strong>$#AMOUNT#</strong> (Transaction ID: <strong>#TXNID#</strong>) covers the current subscription term beginning on <strong>#DATE#</strong>. Subscriptions automatically renew at the standard contract rate unless cancelled at least twenty-four (24) hours prior to the renewal date.
+    </div>
+  </div>
+
+  <div class="terms-section">
+    <div class="terms-title">3. Cancellation, Refund &amp; Dispute Resolution</div>
+    <div class="terms-body">
+      If you did not authorize this transaction or wish to request an immediate cancellation and full refund of <strong>$#AMOUNT#</strong>, please contact our Billing &amp; Compliance Helpdesk at toll-free <strong>#TFN1#</strong> (or secondary line <strong>#TFN2#</strong>) within 48 hours of receipt. Full refunds are processed back to the original payment method (#TYPE#) within 3–5 business days.
+    </div>
+  </div>
+
+  <div class="terms-section">
+    <div class="terms-title">4. Data Privacy &amp; Compliance</div>
+    <div class="terms-body">
+      All customer workloads and billing records associated with Order <strong>#ORDERID#</strong> are encrypted at rest and in transit in strict compliance with SOC-2 Type II, ISO-27001, and GDPR data protection standards.
+    </div>
+  </div>
+
+  <table class="signature-table">
+    <tr>
+      <td width="50%">
+        <div style="font-size: 11px; color: #64748b; margin-bottom: 18px;">Authorized Provider Representative:</div>
+        <div style="font-family: Georgia, serif; font-size: 18px; color: #0369a1; font-style: italic;">Vanguard Billing Compliance</div>
+        <div style="font-size: 11px; color: #475569; margin-top: 4px;">Global Accounts &amp; SLA Division</div>
+      </td>
+      <td width="50%">
+        <div style="font-size: 11px; color: #64748b; margin-bottom: 18px;">Customer Record on File:</div>
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a;">#NAME#</div>
+        <div style="font-size: 11px; color: #475569; margin-top: 4px;">Recorded on #DATE# at #TIME#</div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="page-footer-note" style="margin-top: 25px;">
+    Page 3 of 3 &bull; End of Document &bull; Helpline: #TFN1# / #TFN2# &bull; #EMAIL#
+  </div>
+</div>
+
+</body>
+</html>
