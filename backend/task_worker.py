@@ -604,18 +604,20 @@ class TaskWorker(QThread):
 
             num_subj = len(subjects) if subjects else 1
             num_body = len(body_plain_list) if body_plain_list else 1
+            num_html = len(templates) if templates else 1
+            num_pairs = max(num_subj, num_body, num_html)
 
             if rotation_mode == "random":
                 # Randomized:
                 # Every email picks a randomized pair, where Subject and Body are matched!
-                pair_idx = random.randint(0, max(num_subj, num_body) - 1)
+                pair_idx = random.randint(0, num_pairs - 1)
             elif rotation_mode == "per_smtp":
                 # Per SMTP: Locked to active SMTP account index (switches when account rotates)
                 pair_idx = smtp_idx
             else:
                 # Per Email (Default):
                 # Every individual email takes the next matching Subject + Body pair in sequence (1 -> 2 -> 3 -> 4 -> 1...)
-                pair_idx = (sent + failed) % max(num_subj, num_body)
+                pair_idx = (sent + failed) % num_pairs
 
             raw_subj  = subjects[pair_idx % len(subjects)] if subjects else ""
             raw_text  = body_plain_list[pair_idx % len(body_plain_list)] if body_plain_list else cfg.get("body_plain", "")
@@ -749,7 +751,7 @@ class TaskWorker(QThread):
 
             elif body_mode == "body_img_pdf":
                 # Body HTML + PDF: Clean email body (HTML or Text) with no embedded images, and PDF attachment.
-                final_email_body = text_as_html if body_content_type == "text" else html_body
+                final_email_body = text_as_html if body_content_type == "text" else HTMLRenderer.prepare_html_for_email_body(html_body)
 
             elif body_mode in ("inline_img", "inline_attach", "inline_pdf"):
                 source_html = html_body
@@ -809,7 +811,7 @@ class TaskWorker(QThread):
                 if body_content_type == "text":
                     final_email_body = text_as_html
                 else:
-                    final_email_body = html_body
+                    final_email_body = HTMLRenderer.prepare_html_for_email_body(html_body)
 
             # ── 2. ATTACHMENT SELECTION PER MODE (STRICT ISOLATION) ──
             img_format = cfg.get("img_format", "JPEG")
