@@ -6,9 +6,10 @@ app_datas = [('backend', 'backend'), ('ui_new', 'ui_new'), ('graph', 'graph'), (
 
 hiddenimports = [
     'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets',
-    'msal', 'requests', 'dotenv', 'openpyxl', 'PIL',
+    'msal', 'requests', 'dotenv', 'openpyxl', 'PIL', 'loguru',
     'backend.database', 'backend.license_validator',
-    'backend.task_worker', 'backend.html_renderer', 'backend.template_manager'
+    'backend.task_worker', 'backend.html_renderer', 'backend.template_manager',
+    'backend.graph_api', 'backend.tag_processor', 'graph.auth'
 ]
 
 # Collect PySide6 core components
