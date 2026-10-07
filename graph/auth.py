@@ -169,8 +169,69 @@ class GraphAuth:
             logger.error(f"Error acquiring token: {e}")
             raise e
     
-    def refresh_access_token(self, refresh_token: str) -> Optional[Dict]:
-        """Refresh access token using refresh token"""
+    def acquire_token_client_credentials(self, client_secret: Optional[str] = None, tenant_id: Optional[str] = None) -> Optional[Dict]:
+        """
+        Acquire access token using Option A (Application Permissions / client_credentials flow):
+        POST https://login.microsoftonline.com/<TENANT_ID>/oauth2/v2.0/token
+        grant_type=client_credentials & scope=https://graph.microsoft.com/.default
+        """
+        import requests
+        secret = (client_secret or self.client_secret or "").strip()
+        tenant = (tenant_id or self.tenant_id or "").strip()
+        if not secret or not tenant or tenant.lower() == "common":
+            logger.error("client_credentials flow requires a valid client_secret and specific tenant_id")
+            return None
+
+        try:
+            token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+            resp = requests.post(
+                token_url,
+                data={
+                    "client_id": self.client_id,
+                    "client_secret": secret,
+                    "grant_type": "client_credentials",
+                    "scope": "https://graph.microsoft.com/.default",
+                },
+                timeout=20,
+            )
+            data = resp.json() if resp.content else {}
+            if resp.status_code == 200 and "access_token" in data:
+                logger.info("Successfully acquired token via client_credentials")
+                return {
+                    "access_token": data["access_token"],
+                    "refresh_token": tenant,
+                    "auth_flow": "client_credentials",
+                    "expires_in": data.get("expires_in", 3600),
+                    "expires_at": time.time() + data.get("expires_in", 3600),
+                }
+            logger.error(f"Failed client_credentials token: {data.get('error_description') or resp.text}")
+            return None
+        except Exception as e:
+            logger.error(f"Error in acquire_token_client_credentials: {e}")
+            return None
+
+    def refresh_access_token(self, refresh_token: str, client_secret_hint: Optional[str] = None) -> Optional[Dict]:
+        """
+        Acquire fresh access token using either:
+          1. Delegated OAuth2 Refresh Token (email|password|refresh_token|client_id)
+          2. Application client_credentials (email|client_secret|tenant_id|client_id)
+        """
+        import re
+        token_val = (refresh_token or "").strip()
+
+        # Detect if token_val is a Tenant ID (UUID or domain) for Option A client_credentials flow
+        is_uuid_tenant = bool(re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", token_val))
+        is_domain_tenant = (
+            "." in token_val and len(token_val) < 80 and not token_val.startswith(("M.", "0.", "1."))
+        ) or token_val.lower() == "client_credentials"
+
+        if is_uuid_tenant or is_domain_tenant:
+            tenant = self.tenant_id if token_val.lower() == "client_credentials" else token_val
+            secret = client_secret_hint or self.client_secret
+            cc_res = self.acquire_token_client_credentials(client_secret=secret, tenant_id=tenant)
+            if cc_res:
+                return cc_res
+
         try:
             # Try initial refresh with configured application
             result = self.app.acquire_token_by_refresh_token(
