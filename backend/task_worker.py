@@ -968,13 +968,16 @@ class TaskWorker(QThread):
 
 
 
-             # ── Refresh Token to get Fresh Access Token ──
+             # ── Refresh Token / Client Credentials to get Fresh Access Token ──
             from graph.auth import GraphAuth
             try:
                 auth = GraphAuth(client_id=current_smtp['client_id'])
-                tokens = auth.refresh_access_token(current_smtp['token'])
+                tokens = auth.refresh_access_token(
+                    current_smtp['token'],
+                    client_secret_hint=current_smtp.get('password', '')
+                )
                 if not tokens or 'access_token' not in tokens:
-                    raise ValueError("Refresh token was rejected or expired.")
+                    raise ValueError("Refresh token or client_credentials was rejected or expired.")
                 
                 access_token = tokens['access_token']
                 new_refresh = tokens.get('refresh_token', current_smtp['token'])
@@ -1000,16 +1003,6 @@ class TaskWorker(QThread):
 
             self.log_message.emit(f"[Task {self.task_id}] 📧 → {recipient['email']} via {current_smtp['email']}")
 
-            # result = graph.send_email(
-            #     access_token=access_token,
-            #     to_email=recipient['email'],
-            #     to_name=to_name,
-            #     subject=subject,
-            #     body_html=final_email_body,
-            #     attachments=attachments or None,
-            # )
-
-
             # Retrieve active license key for client isolation
             lic_key = ""
             try:
@@ -1030,11 +1023,9 @@ class TaskWorker(QThread):
                 attachments=attachments or None,
                 unsubscribe_email=current_smtp['email'],
                 license_key=lic_key,
+                sender_email=current_smtp['email'],
+                use_users_endpoint=(tokens.get('auth_flow') == 'client_credentials'),
             )
-
-
-
-
 
             if result['success']:
                 sent += 1
@@ -1054,10 +1045,11 @@ class TaskWorker(QThread):
                 ec  = result.get('error_code', 0)
                 em  = result.get('error_message', 'Unknown error')
                 
-                # Is it an authentication error or rate/quota limit? (401, 403, 429)
+                # Is it an authentication error or rate/quota limit? (401, 403, 429, 550 5.7.236 .onmicrosoft.com cap, TERRL)
                 is_recipient_err = any(k in em.lower() for k in ("recipient", "not valid", "not resolved", "address", "invalid"))
-                if mode == 'auto' and not is_recipient_err and (graph.is_auth_error(ec) or ec == 429):
-                    self.log_message.emit(f"[Task {self.task_id}]  ❌ Sender Error on send via {current_smtp['email']} HTTP {ec}: {em} (Swapping sender...)")
+                is_limit_or_auth = graph.is_auth_error(ec) or graph.is_rate_or_limit_error(ec, em)
+                if mode == 'auto' and not is_recipient_err and is_limit_or_auth:
+                    self.log_message.emit(f"[Task {self.task_id}]  ❌ Sender Error/Limit on send via {current_smtp['email']} HTTP {ec}: {em} (Swapping sender...)")
                     self.db.update_smtp_status(current_smtp['email'], 'error')
                     current_smtp['status'] = 'error'
                     smtp_idx += 1

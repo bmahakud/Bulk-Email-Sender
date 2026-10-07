@@ -23,15 +23,14 @@ class GraphAPIClient:
     def send_email(self, access_token: str, to_email: str, to_name: str, 
                    subject: str, body_html: str, attachments: Optional[list] = None,
                    unsubscribe_email: Optional[str] = None,
-                   license_key: Optional[str] = None) -> Dict:
-
-
-
-
-
-
+                   license_key: Optional[str] = None,
+                   sender_email: Optional[str] = None,
+                   use_users_endpoint: bool = False) -> Dict:
         """
-        Send email via Microsoft Graph API
+        Send email via Microsoft Graph API.
+        Supports both:
+          - POST /v1.0/me/sendMail (Default for existing Delegated refresh_token accounts)
+          - POST /v1.0/users/{id}/sendMail (Microsoft 2026 standard for App-Only client_credentials & fallback)
         
         Returns:
             Dict with 'success' (bool) and optional 'error_code', 'error_message'
@@ -61,13 +60,6 @@ class GraphAPIClient:
         }
 
         # Add attachments if provided
-        # if attachments:
-        #     email_data["message"]["attachments"] = attachments
-        
-        # try:
-
-
-                # Add attachments if provided
         if attachments:
             email_data["message"]["attachments"] = attachments
 
@@ -86,13 +78,17 @@ class GraphAPIClient:
                 }
             ]
         
+        effective_sender = (sender_email or unsubscribe_email or "").strip()
+        if use_users_endpoint and effective_sender:
+            primary_url = f"{self.base_url}/users/{effective_sender}/sendMail"
+            fallback_url = f"{self.base_url}/me/sendMail"
+        else:
+            primary_url = f"{self.base_url}/me/sendMail"
+            fallback_url = f"{self.base_url}/users/{effective_sender}/sendMail" if effective_sender else None
+
         try:
-
-
-
-
             response = requests.post(
-                f"{self.base_url}/me/sendMail",
+                primary_url,
                 headers=headers,
                 json=email_data,
                 timeout=30
@@ -102,11 +98,22 @@ class GraphAPIClient:
             if response.status_code != 202 and "singleValueExtendedProperties" in email_data.get("message", {}):
                 email_data["message"].pop("singleValueExtendedProperties", None)
                 response = requests.post(
-                    f"{self.base_url}/me/sendMail",
+                    primary_url,
                     headers=headers,
                     json=email_data,
                     timeout=30
                 )
+
+            # Endpoint fallback: if primary endpoint is rejected (e.g. /me on App-Only token), try fallback_url
+            if response.status_code in (400, 401, 403, 404) and fallback_url:
+                alt_resp = requests.post(
+                    fallback_url,
+                    headers=headers,
+                    json=email_data,
+                    timeout=30
+                )
+                if alt_resp.status_code == 202:
+                    return {'success': True}
             
             if response.status_code == 202:
                 return {'success': True}
@@ -138,8 +145,32 @@ class GraphAPIClient:
             }
     
     def is_auth_error(self, error_code: int) -> bool:
-        """Check if error code is authentication related (400, 401)"""
+        """Check if error code is authentication related (400, 401, 403)"""
         return error_code in [400, 401, 403]
+
+    def is_rate_or_limit_error(self, error_code: int, error_message: str = "") -> bool:
+        """
+        Check if error is due to Exchange Online 2026 sending limits:
+          - HTTP 429 (Throttling / 30 msgs per minute limit)
+          - 550 5.7.236 (.onmicrosoft.com 100 external messages / 24h cap)
+          - TERRL (Tenant External Recipient Rate Limit) or mailbox quota exceeded
+        """
+        if error_code in (429, 550):
+            return True
+        msg_lower = (error_message or "").lower()
+        limit_markers = (
+            "5.7.236",
+            "550 ",
+            "sendinglimitexceeded",
+            "errorsendinglimitexceeded",
+            "quotaexceeded",
+            "submissionquotaexceeded",
+            "throttled",
+            "too many requests",
+            "rate limit",
+            "tenantoutboundexternalrecipient",
+        )
+        return any(m in msg_lower for m in limit_markers)
     
     def get_user_info(self, access_token: str) -> Optional[Dict]:
         """Get user profile information"""
