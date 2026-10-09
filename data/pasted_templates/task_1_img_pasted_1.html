@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Payment Invoice #INVOICE#</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      color: #1e293b;
+      margin: 0;
+      padding: 0;
+      background-color: #ffffff;
+    }
+    .page {
+      padding: 20px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background-color: #ffffff;
+    }
+    .header-table {
+      width: 100%;
+      border-bottom: 2px solid #2563eb;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+    .brand {
+      font-size: 22px;
+      font-weight: bold;
+      color: #1d4ed8;
+    }
+    .badge {
+      background-color: #dcfce7;
+      color: #15803d;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .info-table {
+      width: 100%;
+      margin-bottom: 18px;
+      font-size: 13px;
+    }
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 18px;
+      font-size: 13px;
+    }
+    .items-table th {
+      background-color: #1e293b;
+      color: #ffffff;
+      padding: 10px;
+      text-align: left;
+    }
+    .items-table td {
+      padding: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .totals-table {
+      width: 260px;
+      margin-left: auto;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-bottom: 18px;
+    }
+    .totals-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .total-row td {
+      background-color: #eff6ff;
+      font-weight: bold;
+      font-size: 15px;
+      color: #1d4ed8;
+    }
+    .notice-box {
+      background-color: #f8fafc;
+      border-left: 4px solid #2563eb;
+      padding: 12px 16px;
+      font-size: 12px;
+      line-height: 1.6;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <table class="header-table" cellspacing="0" cellpadding="0">
+      <tr>
+        <td>
+          <div class="brand">CLOUD BILLING SERVICES</div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
+            Official Payment Receipt &amp; Tax Invoice
+          </div>
+        </td>
+        <td align="right">
+          <div style="font-size: 18px; font-weight: bold;">INVOICE #INVOICE#</div>
+          <div style="font-size: 12px; color: #64748b; margin: 4px 0;">Date: #DATE# | #TIME#</div>
+          <span class="badge">PAID — #TYPE#</span>
+        </td>
+      </tr>
+    </table>
+
+    <table class="info-table" cellspacing="0" cellpadding="4">
+      <tr>
+        <td width="50%" valign="top">
+          <strong>Billed To:</strong><br>
+          Customer: #NAME#<br>
+          Email: #EMAIL#<br>
+          Address: #ADDRESS#
+        </td>
+        <td width="50%" valign="top" align="right">
+          <strong>Transaction Summary:</strong><br>
+          Order ID: #ORDERID#<br>
+          Transaction ID: #TXNID#<br>
+          License Key: #LICENSE#
+        </td>
+      </tr>
+    </table>
+
+    <table class="items-table" cellspacing="0" cellpadding="0">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>Serial / Ref</th>
+          <th>Qty</th>
+          <th align="right">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Annual Enterprise Protection &amp; Cloud Suite</strong><br>
+              <span style="font-size: 11px; color: #64748b;">Auto-renewal subscription plan (12 Months)</span>
+          </td>
+          <td>#SERIAL#</td>
+          <td>1</td>
+          <td align="right">$#AMOUNT#</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <table class="totals-table" cellspacing="0" cellpadding="0">
+      <tr>
+        <td>Subtotal:</td>
+        <td align="right">$#AMOUNT#</td>
+      </tr>
+      <tr>
+        <td>Tax (0%):</td>
+        <td align="right">$0.00</td>
+      </tr>
+      <tr class="total-row">
+        <td>Total Charged:</td>
+        <td align="right">$#AMOUNT#</td>
+      </tr>
+    </table>
+
+    <div class="notice-box">
+      <strong>Need Help or Want to Cancel This Charge?</strong><br>
+      This charge of <strong>$#AMOUNT#</strong> will appear on your statement under <strong>#TYPE#</strong>.<br>
+      If you did not authorize this transaction or wish to request an immediate refund, please call our Billing Support Desk:<br>
+      <strong>Toll-Free Support: #TFN1# &nbsp;|&nbsp; #TFN2#</strong>
+    </div>
+  </div>
+</body>
+</html>

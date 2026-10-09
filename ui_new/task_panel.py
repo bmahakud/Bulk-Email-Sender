@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QComboBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPixmap
 
 from backend.database import Database
 from backend.task_worker import TaskWorker
@@ -141,6 +141,153 @@ class PasteDialog(QDialog):
 
     def get_text(self) -> str:
         return self.edit.toPlainText()
+
+
+class HtmlPreviewDialog(QDialog):
+    """Dialog to preview uploaded HTML files or pasted HTML code (Visual + Source Code)."""
+    def __init__(self, title: str, items: list, sample_replacements: dict = None, initial_index: int = 0, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(920, 680)
+        self.items = items or []
+        self.sample_replacements = sample_replacements or {}
+        self.setStyleSheet(SHARED_SS + """
+            QDialog { background:#1a1b27; color:#e8eaf0; }
+        """)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setSpacing(10)
+
+        # Top control bar
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(10)
+
+        lbl_sel = QLabel("Template:")
+        lbl_sel.setStyleSheet("color:#a0a8c8; font-weight:600; font-size:12px;")
+        top_bar.addWidget(lbl_sel)
+
+        self.cmb_items = QComboBox()
+        self.cmb_items.setMinimumWidth(280)
+        for label, _ in self.items:
+            self.cmb_items.addItem(label)
+        if 0 <= initial_index < len(self.items):
+            self.cmb_items.setCurrentIndex(initial_index)
+        self.cmb_items.currentIndexChanged.connect(self._refresh_preview)
+        top_bar.addWidget(self.cmb_items)
+
+        self.chk_sample_tags = QCheckBox("🔄 Replace #TAGS# with sample values")
+        self.chk_sample_tags.setChecked(True)
+        self.chk_sample_tags.toggled.connect(self._refresh_preview)
+        top_bar.addWidget(self.chk_sample_tags)
+
+        top_bar.addStretch()
+
+        btn_browser = QPushButton("🌐 Open in Browser")
+        btn_browser.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        btn_browser.clicked.connect(self._open_in_browser)
+        top_bar.addWidget(btn_browser)
+
+        lay.addLayout(top_bar)
+
+        # Tabs: Visual Preview vs HTML Source Code
+        self.tabs = QTabWidget()
+
+        # Tab 1: Visual Preview
+        self.visual_scroll = QScrollArea()
+        self.visual_scroll.setWidgetResizable(True)
+        self.visual_scroll.setStyleSheet("QScrollArea { background:#252637; border:1px solid #3d3f52; border-radius:6px; }")
+        self.visual_container = QWidget()
+        self.visual_container.setStyleSheet("background:#252637;")
+        v_lay = QVBoxLayout(self.visual_container)
+        v_lay.setContentsMargins(16, 16, 16, 16)
+        v_lay.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+
+        self.lbl_visual_img = QLabel()
+        self.lbl_visual_img.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.lbl_visual_img.setStyleSheet("background:transparent;")
+        v_lay.addWidget(self.lbl_visual_img)
+
+        self.visual_scroll.setWidget(self.visual_container)
+        self.tabs.addTab(self.visual_scroll, "👁 Visual Preview")
+
+        # Tab 2: HTML Source Code
+        self.txt_source = QTextEdit()
+        self.txt_source.setReadOnly(True)
+        self.txt_source.setFont(QFont("Courier New", 11))
+        self.txt_source.setStyleSheet("""
+            QTextEdit {
+                background:#0d0e17; color:#00d4aa;
+                border:1px solid #3d3f52; border-radius:6px; padding:10px;
+            }
+        """)
+        self.tabs.addTab(self.txt_source, "💻 HTML Source Code")
+
+        lay.addWidget(self.tabs, 1)
+
+        # Bottom Close button
+        bot_bar = QHBoxLayout()
+        bot_bar.addStretch()
+        btn_close = QPushButton("Close Preview")
+        btn_close.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        btn_close.clicked.connect(self.accept)
+        bot_bar.addWidget(btn_close)
+        lay.addLayout(bot_bar)
+
+        self._refresh_preview()
+
+    def _get_active_html(self) -> str:
+        idx = self.cmb_items.currentIndex()
+        if idx < 0 or idx >= len(self.items):
+            return ""
+        raw_html = self.items[idx][1] or ""
+        if self.chk_sample_tags.isChecked() and self.sample_replacements:
+            for tag, val in self.sample_replacements.items():
+                raw_html = raw_html.replace(tag, str(val))
+        return raw_html
+
+    def _refresh_preview(self):
+        import tempfile
+        import uuid
+        html_str = self._get_active_html()
+        self.txt_source.setPlainText(html_str)
+
+        if not html_str.strip():
+            self.lbl_visual_img.clear()
+            self.lbl_visual_img.setText("No HTML content to preview.")
+            return
+
+        try:
+            from backend.html_renderer import HTMLRenderer
+            tmp_png = Path(tempfile.gettempdir()) / f"pm_preview_{uuid.uuid4().hex[:8]}.png"
+            ok = HTMLRenderer.render_html_to_image(html_str, str(tmp_png), format_str="PNG")
+            if ok and tmp_png.exists():
+                pix = QPixmap(str(tmp_png))
+                try:
+                    tmp_png.unlink()
+                except Exception:
+                    pass
+                if not pix.isNull():
+                    if pix.width() > 840:
+                        pix = pix.scaledToWidth(840, Qt.SmoothTransformation)
+                    self.lbl_visual_img.setPixmap(pix)
+                    return
+        except Exception as e:
+            self.lbl_visual_img.setText(f"Preview render notice: {e}")
+
+    def _open_in_browser(self):
+        import tempfile
+        import webbrowser
+        import uuid
+        html_str = self._get_active_html()
+        if not html_str.strip():
+            return
+        try:
+            tmp_html = Path(tempfile.gettempdir()) / f"promailer_preview_{uuid.uuid4().hex[:8]}.html"
+            tmp_html.write_text(html_str, encoding="utf-8")
+            webbrowser.open(tmp_html.resolve().as_uri())
+        except Exception as e:
+            QMessageBox.warning(self, "Browser Preview Error", f"Could not open browser preview:\n{e}")
 
 
 class TaskPanel(QWidget):
@@ -694,9 +841,11 @@ class TaskPanel(QWidget):
         br = QHBoxLayout()
         b_add_h = QPushButton("+ Add Body HTML File"); b_add_h.setStyleSheet(BTN("#5865f2", "#4752c4"))
         b_add_h.clicked.connect(self._add_html)
-        b_clr_h = QPushButton("Clear");           b_clr_h.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_prv_h = QPushButton("👁 Preview");           b_prv_h.setStyleSheet(BTN("#00b894", "#00a383"))
+        b_prv_h.clicked.connect(self._preview_body_html)
+        b_clr_h = QPushButton("Clear");                b_clr_h.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_h.clicked.connect(lambda: self.html_list.clear())
-        br.addWidget(b_add_h); br.addWidget(b_clr_h); br.addStretch()
+        br.addWidget(b_add_h); br.addWidget(b_prv_h); br.addWidget(b_clr_h); br.addStretch()
         hl.addLayout(br)
         self.html_list = QListWidget(); self.html_list.setFixedHeight(90)
         self.html_list.itemDoubleClicked.connect(lambda item: self.html_list.takeItem(self.html_list.row(item)))
@@ -714,9 +863,11 @@ class TaskPanel(QWidget):
         cl.addWidget(code_hint)
 
         c_bar = QHBoxLayout()
-        b_clr_code = QPushButton("Clear"); b_clr_code.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_prv_code = QPushButton("👁 Preview"); b_prv_code.setStyleSheet(BTN("#00b894", "#00a383"))
+        b_prv_code.clicked.connect(self._preview_body_code)
+        b_clr_code = QPushButton("Clear");      b_clr_code.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_code.clicked.connect(lambda: self.txt_body_code.clear())
-        c_bar.addWidget(b_clr_code); c_bar.addStretch()
+        c_bar.addWidget(b_prv_code); c_bar.addWidget(b_clr_code); c_bar.addStretch()
         cl.addLayout(c_bar)
 
         self.txt_body_code = QTextEdit()
@@ -764,7 +915,7 @@ class TaskPanel(QWidget):
         img_lay = QVBoxLayout(self.wdg_img_att)
         img_lay.setContentsMargins(0, 0, 0, 0)
 
-        img_lbl = QLabel("Image Attachment  (Upload HTML Template to convert to Image, OR upload image file):")
+        img_lbl = QLabel("Image Attachment  (Upload HTML Template or Paste HTML Code to convert to Image):")
         img_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
         img_lay.addWidget(img_lbl)
 
@@ -781,13 +932,15 @@ class TaskPanel(QWidget):
         img_lay.addLayout(fmt_row)
 
         ir = QHBoxLayout()
-        b_add_i_html = QPushButton("+ Add HTML for Image (.html)"); b_add_i_html.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_add_i_html   = QPushButton("+ Add HTML for Image (.html)"); b_add_i_html.setStyleSheet(BTN("#5865f2", "#4752c4"))
         b_add_i_html.clicked.connect(self._add_img_html)
-        b_add_i = QPushButton("+ Add Image File (PNG/JPG/JPEG/GIF)"); b_add_i.setStyleSheet(BTN("#43b581", "#369e6b"))
-        b_add_i.clicked.connect(self._add_img_att)
-        b_clr_i = QPushButton("Clear"); b_clr_i.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_paste_i_html = QPushButton("📋 Paste HTML Code");           b_paste_i_html.setStyleSheet(BTN("#4752c4", "#3a47a0"))
+        b_paste_i_html.clicked.connect(self._paste_img_html)
+        b_prv_i_html   = QPushButton("👁 Preview");                   b_prv_i_html.setStyleSheet(BTN("#00b894", "#00a383"))
+        b_prv_i_html.clicked.connect(self._preview_img_html)
+        b_clr_i        = QPushButton("Clear");                        b_clr_i.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_i.clicked.connect(lambda: self.img_att_list.clear())
-        ir.addWidget(b_add_i_html); ir.addWidget(b_add_i); ir.addWidget(b_clr_i); ir.addStretch()
+        ir.addWidget(b_add_i_html); ir.addWidget(b_paste_i_html); ir.addWidget(b_prv_i_html); ir.addWidget(b_clr_i); ir.addStretch()
         img_lay.addLayout(ir)
         self.img_att_list = QListWidget(); self.img_att_list.setFixedHeight(70)
         self.img_att_list.itemDoubleClicked.connect(lambda item: self.img_att_list.takeItem(self.img_att_list.row(item)))
@@ -800,18 +953,20 @@ class TaskPanel(QWidget):
         pdf_lay = QVBoxLayout(self.wdg_pdf_att)
         pdf_lay.setContentsMargins(0, 0, 0, 0)
         
-        pdf_lbl = QLabel("PDF Attachment  (Upload HTML Template to convert to PDF — A4/A1 formats & exact 1-to-1 page count strictly preserved, OR upload .pdf):")
+        pdf_lbl = QLabel("PDF Attachment  (Upload HTML Template or Paste HTML Code to convert to PDF — A4/A1 & exact page count preserved):")
         pdf_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
         pdf_lay.addWidget(pdf_lbl)
 
         pr = QHBoxLayout()
-        b_add_p_html = QPushButton("+ Add HTML for PDF (.html)"); b_add_p_html.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_add_p_html   = QPushButton("+ Add HTML for PDF (.html)"); b_add_p_html.setStyleSheet(BTN("#5865f2", "#4752c4"))
         b_add_p_html.clicked.connect(self._add_pdf_html)
-        b_add_p = QPushButton("+ Add PDF File (.pdf)"); b_add_p.setStyleSheet(BTN("#f0a500", "#c88a00"))
-        b_add_p.clicked.connect(self._add_pdf_att)
-        b_clr_p = QPushButton("Clear"); b_clr_p.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_paste_p_html = QPushButton("📋 Paste HTML Code");         b_paste_p_html.setStyleSheet(BTN("#4752c4", "#3a47a0"))
+        b_paste_p_html.clicked.connect(self._paste_pdf_html)
+        b_prv_p_html   = QPushButton("👁 Preview");                 b_prv_p_html.setStyleSheet(BTN("#00b894", "#00a383"))
+        b_prv_p_html.clicked.connect(self._preview_pdf_html)
+        b_clr_p        = QPushButton("Clear");                      b_clr_p.setStyleSheet(BTN("#3d3f52", "#52546e"))
         b_clr_p.clicked.connect(lambda: self.pdf_att_list.clear())
-        pr.addWidget(b_add_p_html); pr.addWidget(b_add_p); pr.addWidget(b_clr_p); pr.addStretch()
+        pr.addWidget(b_add_p_html); pr.addWidget(b_paste_p_html); pr.addWidget(b_prv_p_html); pr.addWidget(b_clr_p); pr.addStretch()
         pdf_lay.addLayout(pr)
         self.pdf_att_list = QListWidget(); self.pdf_att_list.setFixedHeight(70)
         self.pdf_att_list.itemDoubleClicked.connect(lambda item: self.pdf_att_list.takeItem(self.pdf_att_list.row(item)))
@@ -1426,16 +1581,222 @@ class TaskPanel(QWidget):
                 + "\n\nPlease compress or reduce them before uploading."
             )
 
+    def _paste_attachment_html(self, list_widget: QListWidget, att_type: str, title: str):
+        import re
+        dlg = PasteDialog(
+            f"Paste HTML Code — {title}",
+            f"Paste your HTML template code below to convert into {title}.\n"
+            "All dynamic tags (#NAME#, #INVOICE#, #AMOUNT#, #TFN1#, #DATE#, etc.) are supported.\n"
+            "You can also separate multiple HTML templates with === on a new line.",
+            self
+        )
+        # If a pasted HTML file is already loaded, pre-fill it so the user can view/edit it
+        if list_widget.count() > 0:
+            first_path = Path(list_widget.item(0).text())
+            if first_path.exists() and "pasted_templates" in str(first_path):
+                try:
+                    existing_parts = []
+                    for i in range(list_widget.count()):
+                        p_i = Path(list_widget.item(i).text())
+                        if p_i.exists():
+                            existing_parts.append(p_i.read_text(encoding="utf-8", errors="replace"))
+                    if existing_parts:
+                        dlg.edit.setPlainText("\n===\n".join(existing_parts))
+                except Exception:
+                    pass
 
+        if dlg.exec() != QDialog.Accepted:
+            return
 
+        raw_code = dlg.get_text().strip()
+        if not raw_code:
+            return
 
+        parts = [c.strip() for c in re.split(r'\s*={3,}\s*', raw_code) if c.strip()]
+        if not parts:
+            parts = [raw_code]
 
+        out_dir = Path("data") / "pasted_templates"
+        out_dir.mkdir(parents=True, exist_ok=True)
 
+        max_bytes = 100 * 1024
+        accepted = []
+        rejected = []
 
+        for idx, part in enumerate(parts, 1):
+            formatted = self._format_text_for_email(part)
+            size_b = len(formatted.encode("utf-8"))
+            if size_b > max_bytes:
+                rejected.append(f"Pasted Template #{idx} ({size_b // 1024} KB)")
+                continue
+            out_file = out_dir / f"task_{self.task_id}_{att_type}_pasted_{idx}.html"
+            try:
+                out_file.write_text(formatted, encoding="utf-8")
+                accepted.append(str(out_file.resolve()))
+            except Exception as e:
+                self._log(f"❌ Error saving pasted HTML for {title}: {e}")
 
+        if accepted:
+            list_widget.clear()
+            for f in accepted:
+                list_widget.addItem(f)
+            self._log(f"📋 Pasted {len(accepted)} HTML template(s) for {title}")
 
+        if rejected:
+            QMessageBox.warning(
+                self,
+                "Template too large",
+                "These pasted HTML templates are over 100KB and were NOT added:\n\n"
+                + "\n".join(rejected)
+                + "\n\nPlease ensure HTML templates are below 100KB."
+            )
 
+    def _paste_img_html(self):
+        self._paste_attachment_html(self.img_att_list, "img", "Image Attachment")
 
+    def _paste_pdf_html(self):
+        self._paste_attachment_html(self.pdf_att_list, "pdf", "PDF Attachment")
+
+    # ── HTML Preview helpers ──────────────────────────────────────────────────
+    def _build_sample_replacements(self) -> dict:
+        """Build realistic tag replacements using the current campaign settings for HTML preview."""
+        try:
+            from backend.tag_processor import TagProcessor
+            tp = TagProcessor()
+            addresses = [a.strip() for a in self.txt_addresses.toPlainText().split('\n') if a.strip()]
+            if addresses:
+                tp.set_address_pool(addresses)
+
+            sample_recipient = {"email": "john.doe@example.com", "name": "John Doe"}
+            raw_recs = [l.strip() for l in self.txt_recipients.toPlainText().split('\n') if '@' in l]
+            if raw_recs:
+                first_line = raw_recs[0]
+                parts = [p.strip() for p in first_line.split(',') if p.strip()]
+                if parts:
+                    sample_recipient["email"] = parts[0]
+                    sample_recipient["name"] = parts[1] if len(parts) > 1 else parts[0].split('@')[0]
+
+            campaign_tags = self._build_campaign_tags()
+            if not campaign_tags.get("tfn1"):
+                campaign_tags["tfn1"] = "+1 (800) 555-0199"
+            if not campaign_tags.get("tfn2"):
+                campaign_tags["tfn2"] = "+1 (888) 555-0144"
+
+            senders = [s.strip() for s in self.txt_senders.toPlainText().split('\n') if s.strip()]
+            sample_sender = senders[0] if senders else "Support Team"
+
+            return tp.build_replacements(
+                recipient=sample_recipient,
+                campaign_tags=campaign_tags,
+                sender_name=sample_sender,
+                sender_email="billing@company.com"
+            )
+        except Exception:
+            return {}
+
+    def _preview_list_widget_html(self, list_widget: QListWidget, title: str, inline_b64: bool = True):
+        if list_widget.count() == 0:
+            QMessageBox.information(
+                self,
+                "Nothing to Preview",
+                f"No HTML file has been uploaded in '{title}' yet.\n\n"
+                f"Please upload an .html file first, then click '👁 Preview'."
+            )
+            return
+
+        items = []
+        selected_idx = max(0, list_widget.currentRow())
+        for i in range(list_widget.count()):
+            fpath = list_widget.item(i).text()
+            p = Path(fpath)
+            if not p.exists():
+                continue
+            try:
+                html_str = p.read_text(encoding="utf-8", errors="replace")
+                if inline_b64:
+                    try:
+                        from backend.template_manager import TemplateManager
+                        html_str = TemplateManager().process_html_inline_images(html_str, str(p))
+                    except Exception:
+                        pass
+                items.append((p.name, html_str))
+            except Exception as e:
+                self._log(f"⚠ Cannot read {fpath} for preview: {e}")
+
+        if not items:
+            QMessageBox.warning(
+                self,
+                "Preview Error",
+                "Could not read the uploaded HTML file(s). Please verify the file path exists."
+            )
+            return
+
+        dlg = HtmlPreviewDialog(
+            title=f"Preview — {title}",
+            items=items,
+            sample_replacements=self._build_sample_replacements(),
+            initial_index=min(selected_idx, len(items) - 1),
+            parent=self
+        )
+        dlg.exec()
+
+    def _preview_body_html(self):
+        self._preview_list_widget_html(
+            self.html_list,
+            "Email Body HTML Template",
+            inline_b64=self.chk_inline_b64.isChecked()
+        )
+
+    def _preview_body_code(self):
+        import re
+        raw_code = self.txt_body_code.toPlainText().strip()
+        if not raw_code:
+            QMessageBox.information(
+                self,
+                "Nothing to Preview",
+                "No HTML code has been pasted yet.\n\n"
+                "Please paste your HTML code into the editor box first, then click '👁 Preview'."
+            )
+            return
+
+        code_parts = [c.strip() for c in re.split(r'\s*={3,}\s*', raw_code) if c.strip()]
+        if not code_parts:
+            code_parts = [raw_code]
+
+        items = []
+        for idx, part in enumerate(code_parts, 1):
+            formatted = self._format_text_for_email(part)
+            if getattr(self, 'chk_code_inline_b64', None) and self.chk_code_inline_b64.isChecked():
+                try:
+                    from backend.template_manager import TemplateManager
+                    formatted = TemplateManager().process_html_inline_images(formatted, "")
+                except Exception:
+                    pass
+            label = f"Pasted HTML Template #{idx}" if len(code_parts) > 1 else "Pasted HTML Code"
+            items.append((label, formatted))
+
+        dlg = HtmlPreviewDialog(
+            title="Preview — Pasted HTML Code",
+            items=items,
+            sample_replacements=self._build_sample_replacements(),
+            initial_index=0,
+            parent=self
+        )
+        dlg.exec()
+
+    def _preview_img_html(self):
+        self._preview_list_widget_html(
+            self.img_att_list,
+            "Image Attachment HTML Template",
+            inline_b64=True
+        )
+
+    def _preview_pdf_html(self):
+        self._preview_list_widget_html(
+            self.pdf_att_list,
+            "PDF Attachment HTML Template",
+            inline_b64=True
+        )
 
     # ── Campaign config builder ───────────────────────────────────────────────
     def _build_campaign_tags(self):
@@ -2130,12 +2491,12 @@ class TaskPanel(QWidget):
 
             if not img_paths:
                 self.sub_tabs.setCurrentIndex(3)
-                self._log(f"❌ [{mode_label}] Missing Image Attachment — please add an HTML for Image or Image file before sending.")
+                self._log(f"❌ [{mode_label}] Missing Image Attachment — please add or paste HTML for Image before sending.")
                 QMessageBox.warning(
                     self,
                     "Missing Image Attachment",
                     f"You selected '{mode_label}' mode, but forgot to add an Image Attachment.\n\n"
-                    f"Please click '+ Add HTML for Image (.html)' or '+ Add Image File' under Attachments before sending."
+                    f"Please click '+ Add HTML for Image (.html)' or '📋 Paste HTML Code' under Attachments before sending."
                 )
                 return
 
@@ -2157,12 +2518,12 @@ class TaskPanel(QWidget):
 
             if not pdf_paths:
                 self.sub_tabs.setCurrentIndex(3)
-                self._log(f"❌ [{mode_label}] Missing PDF Attachment — please add an HTML for PDF or PDF file before sending.")
+                self._log(f"❌ [{mode_label}] Missing PDF Attachment — please add or paste HTML for PDF before sending.")
                 QMessageBox.warning(
                     self,
                     "Missing PDF Attachment",
                     f"You selected '{mode_label}' mode, but forgot to add a PDF Attachment.\n\n"
-                    f"Please click '+ Add HTML for PDF (.html)' or '+ Add PDF File (.pdf)' under Attachments before sending."
+                    f"Please click '+ Add HTML for PDF (.html)' or '📋 Paste HTML Code' under Attachments before sending."
                 )
                 return
 
