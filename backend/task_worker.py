@@ -97,16 +97,17 @@ def _make_recipient_specific_image_bytes(
                 px[x, y] = tuple(ch)
 
         out_buf = io.BytesIO()
+        uid_str = f"{recipient_email}-{uuid.uuid4().hex[:8]}"
 
         if fmt == "PNG":
             info = PngImagePlugin.PngInfo()
-            info.add_text("X-UID", f"{recipient_email}-{uuid.uuid4().hex[:8]}")
+            info.add_text("X-UID", uid_str)
             im.save(out_buf, format="PNG", pnginfo=info, optimize=True)
         elif fmt in ("JPEG", "WEBP"):
             quality = rng.randint(90, 95)
             save_kwargs = {"format": fmt, "quality": quality, "optimize": True}
             if fmt == "JPEG":
-                save_kwargs["comment"] = f"{recipient_email}-{uuid.uuid4().hex[:8]}".encode()
+                save_kwargs["comment"] = uid_str.encode()
             im.save(out_buf, **save_kwargs)
         else:
             im.save(out_buf, format=fmt)
@@ -117,19 +118,16 @@ def _make_recipient_specific_image_bytes(
         if len(res) <= max_bytes:
             return res
 
-        # If slightly over 100 KB, reduce quality step-by-step to fit below 100 KB
-        if fmt in ("JPEG", "WEBP"):
-            for q in [85, 75, 65]:
-                out_buf = io.BytesIO()
-                im.save(out_buf, format=fmt, quality=q, optimize=True)
-                if len(out_buf.getvalue()) <= max_bytes:
-                    return out_buf.getvalue()
-        elif fmt == "PNG":
-            out_buf = io.BytesIO()
-            im_quant = im.convert("P", palette=Image.ADAPTIVE, colors=256)
-            im_quant.save(out_buf, format="PNG", optimize=True)
-            if len(out_buf.getvalue()) <= max_bytes:
-                return out_buf.getvalue()
+        # Enforce strict < 100 KB ceiling using multi-step non-dithered palette / quality / scale
+        try:
+            from .html_renderer import HTMLRenderer
+            comp = HTMLRenderer._compress_pil_image_bytes(
+                im, save_fmt=fmt, max_bytes=max_bytes - 1024, uid_text=uid_str
+            )
+            if comp and len(comp) <= max_bytes:
+                return comp
+        except Exception:
+            pass
 
         # Fallback: if original was already <= 100KB, return original
         if len(data) <= max_bytes:
@@ -191,15 +189,18 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 b64_data = HTMLRenderer.render_html_to_base64_pdf(html_content)
                 if not b64_data:
                     return None
+                data = base64.b64decode(b64_data)
+                data = _make_recipient_specific_pdf_bytes(data, recipient_email, max_kb=100)
+                b64_data = base64.b64encode(data).decode('utf-8')
             else:
                 data = p.read_bytes()
-                data = _make_recipient_specific_pdf_bytes(data, recipient_email)
+                data = _make_recipient_specific_pdf_bytes(data, recipient_email, max_kb=100)
                 b64_data = base64.b64encode(data).decode('utf-8')
                 
             # Fingerprint and diagnostic log for PDF
             b64_hash = hashlib.sha256(b64_data.encode('ascii')).hexdigest()
             try:
-                raw_bytes_len = len(data) if ext not in ('.html', '.htm') else (len(b64_data) * 3 // 4)
+                raw_bytes_len = len(data)
                 with open("base64_diagnostic.log", "a", encoding="utf-8") as f:
                     f.write(f"[Base64 PDF] recipient={recipient_email} | file={p.name} | bytes={raw_bytes_len} | length={len(b64_data)} | sha256={b64_hash}\n")
             except Exception:
@@ -264,25 +265,26 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
 
             if ext in ('.html', '.htm'):
                 html_content = p.read_text(encoding='utf-8')
-                img_data_url = HTMLRenderer.render_html_to_base64_image(html_content, format_str="PNG")
+                from backend.template_manager import TemplateManager
+                html_content = TemplateManager().process_html_inline_images(html_content, str(p))
+                fmt_render = "PNG" if target_ext == ".png" else ("GIF" if target_ext == ".gif" else "JPEG")
+                img_data_url = HTMLRenderer.render_html_to_base64_image(html_content, format_str=fmt_render)
                 if img_data_url and ";base64," in img_data_url:
                     raw_bytes = base64.b64decode(img_data_url.split(";base64,")[1])
                 else:
                     return None
+                raw_bytes = _make_recipient_specific_image_bytes(
+                    raw_bytes,
+                    recipient_email,
+                    fmt_render.lower()
+                )
             else:
                 raw_bytes = p.read_bytes()
-                # raw_bytes = _make_recipient_specific_image_bytes(
-                #     raw_bytes,
-                #     recipient_email,
-                #     ext
-                # )
-
-
                 raw_bytes = _make_recipient_specific_image_bytes(
                     raw_bytes,
                     recipient_email,
                     img_format or ext.lstrip(".")
-)
+                )
             b64_data = base64.b64encode(raw_bytes).decode('utf-8')
 
             # Diagnostic only: fingerprint the Base64 generated for this image.
@@ -658,7 +660,10 @@ class TaskWorker(QThread):
             final_email_body = ""
             attachments = []
             
-            from .html_renderer import HTMLRenderer
+            import importlib
+            from . import html_renderer as _hr_mod
+            importlib.reload(_hr_mod)
+            HTMLRenderer = _hr_mod.HTMLRenderer
             
             prefix = recipient['email'].split('@')[0]
             rand_n = random.randint(1000, 9999)
@@ -904,16 +909,20 @@ class TaskWorker(QThread):
                                 pdf_processed_html = self.tag_proc.apply_replacements(pdf_raw_html, recipient_tags)
                                 pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(pdf_processed_html)
                                 if pdf_b64:
+                                    raw_pdf_bytes = base64.b64decode(pdf_b64)
+                                    raw_pdf_bytes = _make_recipient_specific_pdf_bytes(raw_pdf_bytes, recipient['email'], max_kb=100)
+                                    pdf_b64 = base64.b64encode(raw_pdf_bytes).decode('utf-8')
                                     b64_hash = hashlib.sha256(pdf_b64.encode('ascii')).hexdigest()
                                     self.log_message.emit(
                                         f"[Task {self.task_id}] Base64 PDF (from HTML template) | "
                                         f"recipient={recipient['email']} | "
                                         f"file={p.name} | "
+                                        f"bytes={len(raw_pdf_bytes)} | "
                                         f"base64_length={len(pdf_b64)} | "
                                         f"base64_sha256={b64_hash}"
                                     )
                                     try:
-                                        raw_bytes_len = len(pdf_b64) * 3 // 4
+                                        raw_bytes_len = len(raw_pdf_bytes)
                                         with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
                                             diag_f.write(f"[Base64 PDF] recipient={recipient['email']} | file={p.name} | bytes={raw_bytes_len} | length={len(pdf_b64)} | sha256={b64_hash}\n")
                                     except Exception:

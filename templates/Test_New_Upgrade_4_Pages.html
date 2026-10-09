@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Thank you for #ORDERID# - 4 Page Invoice</title>
+
+<style>
+    @page {
+        size: A4 portrait;
+        margin: 7mm;
+    }
+
+    * {
+        box-sizing: border-box;
+    }
+
+    html, body {
+        margin: 0;
+        padding: 0;
+        background: #ffffff;
+    }
+
+    body {
+        font-family: Calibri, "Bancroft", Arial, sans-serif;
+        color: #252b31;
+        font-size: 13px;
+        line-height: 1.30;
+    }
+
+    table {
+        border-collapse: collapse;
+        border-spacing: 0;
+    }
+
+    img {
+        border: 0;
+        display: block;
+    }
+
+    .page {
+        width: 100%;
+        max-width: 196mm;
+        margin: 0 auto;
+        background: #ffffff;
+        border: 1px solid #d4d9de;
+    }
+
+    .page-break {
+        page-break-after: always;
+        break-after: page;
+    }
+
+    .section {
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+
+    @media print {
+        html, body {
+            width: 210mm;
+            background: #ffffff !important;
+        }
+
+        .page {
+            width: 100%;
+            max-width: none;
+            margin: 0;
+        }
+    }
+</style>
+</head>
+<body>
+
+<!-- ===================================================================== -->
+<!-- PAGE 1 OF 4 : OFFICIAL INVOICE RECEIPT                                -->
+<!-- ===================================================================== -->
+<div class="page page-break" style="border:1px solid #ffffff;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; background:#ffffff;">
+
+<!-- HEADER : LOGO + INVOICE -->
+<tr>
+<td style="padding:5px 22px 12px 22px; border-bottom:2px solid #293b4d;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="50%" valign="middle" align="left">
+                <img src="data:image/png;base64,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"
+                     width="200" alt="Custom Company" style="width:200px; max-width:200px; height:auto;">
+            </td>
+            <td width="50%" valign="middle" align="right">
+                <div style="font-size:25px; line-height:1; font-weight:700; letter-spacing:.5px; color:#36454F;">
+                    INVOICE RECEIPT
+                </div>
+                <div style="padding-top:4px; font-size:20px; color:#191970;">
+                    Customer care: #TFN2#
+                </div>
+                <div style="padding-top:2px; font-size:12px; font-weight:700; color:#69717a;">
+                    Page 1 of 4
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- COMPANY + BILLING PROFILE -->
+<tr>
+<td style="padding:12px 22px 11px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="55%" valign="top">
+                <div style="font-size:18px; font-weight:700; color:#E49B0F;">Your Test Inc.</div>
+                <div style="padding-top:3px; font-size:16px; line-height:1.35; color:#555d65;">
+                    Corporate Address:1234 E. Rio Salado Parkway,<br>
+                    Suite 0000,Test AB 00000, USA
+                </div>
+            </td>
+            <td width="45%" valign="top" align="right">
+                <div style="font-size:18px; font-weight:700; color:#CD7F32; text-transform:uppercase; letter-spacing:.4px;">
+                    BILLING PROFILE
+                </div>
+                <div style="padding-top:3px; font-size:18px; font-weight:700; color:#36454F; word-break:break-word;">
+                    #EMAIL#
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- INVOICE INFORMATION -->
+<tr class="section">
+<td style="padding:0 22px 10px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d4d9de;">
+        <tr style="background:#FFDB58;">
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">INVOICE NO.</td>
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">ORDER NUMBER</td>
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">INVOICE DATE</td>
+            <td width="25%" style="padding:6px 8px; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">BILLING STATUS</td>
+        </tr>
+        <tr>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:16px; font-weight:700;">#INVOICE#</td>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:16px; font-weight:700;">#ORDERID#</td>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:16px;">#DATE#</td>
+            <td style="padding:7px 8px; font-size:16px; font-weight:700; color:#337147;">PAID</td>
+        </tr>
+    </table>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px; border:1px solid #d4d9de;">
+        <tr>
+            <td width="50%" style="padding:7px 9px; border-right:1px solid #d4d9de;">
+                <span style="font-size:15px; font-weight:700; color:#191970;">TRANSACTION ID:</span>
+                <span style="padding-left:8px; font-size:16px; font-weight:700;">#TXNID#</span>
+            </td>
+            <td width="50%" style="padding:7px 9px;">
+                <span style="font-size:15px; font-weight:700; color:#191970;">PAYMENT METHOD:</span>
+                <span style="padding-left:8px; font-size:16px; font-weight:700;">#TYPE#</span>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- SUPPORT TEAM -->
+<tr class="section">
+<td style="padding:0 22px 10px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#6495ED; border-left:3px solid #293b4d;">
+        <tr>
+            <td width="27%" valign="middle" style="padding:8px 15px; font-size:14px; font-weight:700; color:#FFFFFF;">BILLING SUPPORT</td>
+            <td width="73%" valign="middle" style="padding:8px 15px; font-size:16px; color:#FFFFFF;">
+                <strong style="color:#FFFFFF;">#TFN1#</strong> &nbsp;&nbsp; | &nbsp;&nbsp; <strong>Hours:</strong> Mon - Fri, 8:00 AM - 6:00 PM EST
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- PRODUCT DETAILS -->
+<tr class="section">
+<td style="padding:0 22px 9px 22px;">
+    <div style="padding-bottom:5px; font-size:16px; font-weight:700; color:#36454F;">Package Details</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d4d9de;">
+        <tr style="background:#FFDB58;">
+            <td width="46%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">PRODUCT / DESCRIPTION</td>
+            <td width="14%" align="center" style="padding:6px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">PRICE</td>
+            <td width="9%" align="center" style="padding:6px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">QTY</td>
+            <td width="19%" align="right" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">AMOUNT</td>
+            <td width="12%" align="center" style="padding:6px; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">CURRENCY</td>
+        </tr>
+        <tr>
+            <td valign="top" style="padding:8px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">
+                <div style="font-size:14.5px; font-weight:700;">Your Test Product with Lifetime Benefits<br>(Yearly Package All Benefits)</div>
+                <div style="padding-top:2px; font-size:13px; line-height:1.25; color:#646b72;">Covers unlimited devices, includes 500 GB Cloud Backup, Test 1, Test 2, Test 3, and Test 4 protection</div>
+            </td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">$#AMOUNT#</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">1</td>
+            <td align="right" valign="top" style="padding:8px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6; font-weight:700;">$#AMOUNT#</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-bottom:1px solid #e0e3e6;">USD</td>
+        </tr>
+        <tr>
+            <td valign="top" style="padding:8px; border-right:1px solid #e0e3e6;">
+                <div style="font-size:14.5px; font-weight:700;">Lifetime Test Secure Benefits</div>
+                <div style="padding-top:2px; font-size:13px; line-height:1.25; color:#646b72;">24/7 Support System, your AI assistant, Advanced AI outsmarts online security.</div>
+            </td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6;">Free</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6;">1</td>
+            <td align="right" valign="top" style="padding:8px; border-right:1px solid #e0e3e6; font-weight:700;">$0.00</td>
+            <td align="center" valign="top" style="padding:8px 5px;">USD</td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- TOTALS -->
+<tr class="section">
+<td style="padding:0 22px 9px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="48%" valign="middle" style="font-size:14px; line-height:1.35; color:#636a71;">
+                Currency: <strong>USD</strong><br>Tax is included where applicable.
+            </td>
+            <td width="52%" valign="top">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:2px solid #293b4d;">
+                    <tr>
+                        <td style="padding:6px 7px; border-bottom:1px solid #dddddd; font-size:15.5px;">Total (Tax Included)</td>
+                        <td align="right" style="padding:6px 7px; border-bottom:1px solid #dddddd; font-size:15.5px; font-weight:700;">$#AMOUNT#</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:6px 7px; font-size:16.5px; font-weight:700; color:#191970;">Amount Paid</td>
+                        <td align="right" style="padding:6px 7px; font-size:18px; font-weight:700; color:#191970;">$#AMOUNT#</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- NOTES + TERMS -->
+<tr class="section">
+<td style="padding:0 22px 8px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="49%" valign="top" style="padding:8px 10px; background:#fff9e8; border:1px solid #eadfae;">
+                <div style="font-size:18px; font-weight:700; color:#594d27;">NOTES</div>
+                <div style="padding-top:3px; font-size:16px; line-height:1.30; color:#575249;">
+                    Thank you for your order. As you make changes to your TESTSLOT account, your service plan has been upgraded.<br>
+                    Your <strong>TestSlot 1</strong> plan has been upgraded to <strong>Test Slot Protection 2</strong>, which includes Lifetime protection for cyber safety. For details of this package, you can manage it in admin center.
+                </div>
+            </td>
+            <td width="2%">&nbsp;</td>
+            <td width="49%" valign="top" style="padding:8px 10px; background:#f1f6f9; border:1px solid #d3e0e7;">
+                <div style="font-size:18px; font-weight:700; color:#344d60;">TERMS &amp; CONDITIONS</div>
+                <div style="padding-top:3px; font-size:15px; line-height:1.30; color:#535e65;">
+                    As part of our Community, your package will be automatically renewed before its expiration date, at the renewal term package price in effect at the time of renewal billed to the payment #TYPE# we have on file. Pricing is subject to change. Your package is ongoing and will continue [annually] until you cancel. If you would like additional information or to cancel your subscription or modify your auto-renewal settings, contact Billing Support. Upon request we will provide you a full refund if you cancel upgrade package(s).<br><strong style="color:#EC5800;">This is a yearly Test Package for your coverage.</strong>
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- HELP -->
+<tr class="section">
+<td style="padding:0 22px 8px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d6dadd; border-left:3px solid #293b4d;">
+        <tr>
+            <td width="21%" valign="middle" style="padding:8px 10px; font-size:16px; font-weight:700; color:#CD7F32;">Need any help?</td>
+            <td width="79%" valign="middle" style="padding:8px 10px; font-size:16px; line-height:1.35; color:#4a5055;">
+                If you did not request this service, please reach our Billing Support Team during standard business hours at <strong style="color:#EC5800;">#TFN1#.</strong><br>
+                Need any help or assistance about your subscription, connect our Toll Free <strong style="font-size:16px; color:#191970;">#TFN2#</strong>.
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- CUSTOMER REFERENCE -->
+<tr class="section">
+<td style="padding:8px 18px; background:#f6f7f8; border-top:1px solid #d9dde0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="23%" valign="top">
+                <div style="font-size:13px; font-weight:700; color:#8B8000;">Subscription Details</div>
+            </td>
+            <td width="77%" valign="top">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td width="50%" style="padding:2px 5px; font-size:12px;"><strong>Package:</strong> TestSlot Secure Protection Service</td>
+                        <td width="50%" style="padding:2px 5px; font-size:12px;"><strong>You are currently subscribed as:</strong> #EMAIL#</td>
+                    </tr>
+                    <tr>
+                        <td width="50%" style="padding:2px 5px; font-size:13.5px;"><strong>Plan ID:</strong> #NUMBER#</td>
+                        <td width="50%" style="padding:2px 5px; font-size:13.5px;"><strong>License Key:</strong> #LICENSE#</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- FOOTER PAGE 1 -->
+<tr class="section">
+<td align="center" style="padding:9px 22px 10px 22px; border-top:1px solid #d9dde0; background:#ffffff; color:#6a7075; font-size:12.5px; line-height:1.35;">
+    <strong style="font-size:12.5px; color:#343a40;">
+        This is a service communication from Test Inc. Auto generated Message ID #GUID# (Page 1 of 4)<br>
+        This email was sent to "#EMAIL#" because your email preferences are set to receive "News and Promotions"
+    </strong><br>
+    Please do not reply to this message. This email address is not monitored, and responses will not be received.
+</td>
+</tr>
+</table>
+</div>
+
+
+<!-- ===================================================================== -->
+<!-- PAGE 2 OF 4 : LICENSE ACTIVATION & DEVICE PROTECTION SCHEDULE         -->
+<!-- ===================================================================== -->
+<div class="page page-break" style="border:1px solid #ffffff;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; background:#ffffff;">
+
+<!-- HEADER : LOGO + PAGE 2 -->
+<tr>
+<td style="padding:5px 22px 12px 22px; border-bottom:2px solid #293b4d;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="50%" valign="middle" align="left">
+                <img src="data:image/png;base64,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"
+                     width="200" alt="Custom Company" style="width:200px; max-width:200px; height:auto;">
+            </td>
+            <td width="50%" valign="middle" align="right">
+                <div style="font-size:25px; line-height:1; font-weight:700; letter-spacing:.5px; color:#36454F;">
+                    PROTECTION SCHEDULE
+                </div>
+                <div style="padding-top:4px; font-size:20px; color:#191970;">
+                    Customer care: #TFN2#
+                </div>
+                <div style="padding-top:2px; font-size:12px; font-weight:700; color:#69717a;">
+                    Page 2 of 4
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- COMPANY + BILLING PROFILE -->
+<tr>
+<td style="padding:12px 22px 11px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="55%" valign="top">
+                <div style="font-size:18px; font-weight:700; color:#E49B0F;">Your Test Inc. — Device &amp; Cloud Provisioning</div>
+                <div style="padding-top:3px; font-size:16px; line-height:1.35; color:#555d65;">
+                    Corporate Address:1234 E. Rio Salado Parkway,<br>
+                    Suite 0000,Test AB 00000, USA
+                </div>
+            </td>
+            <td width="45%" valign="top" align="right">
+                <div style="font-size:18px; font-weight:700; color:#CD7F32; text-transform:uppercase; letter-spacing:.4px;">
+                    LICENSED ACCOUNT
+                </div>
+                <div style="padding-top:3px; font-size:18px; font-weight:700; color:#36454F; word-break:break-word;">
+                    #EMAIL#
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- LICENSE SUMMARY -->
+<tr class="section">
+<td style="padding:0 22px 10px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d4d9de;">
+        <tr style="background:#FFDB58;">
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">LICENSE KEY</td>
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">PLAN ID</td>
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">ACTIVATION DATE</td>
+            <td width="25%" style="padding:6px 8px; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">LICENSE STATUS</td>
+        </tr>
+        <tr>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:15px; font-weight:700;">#LICENSE#</td>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:16px; font-weight:700;">#NUMBER#</td>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:16px;">#DATE#</td>
+            <td style="padding:7px 8px; font-size:16px; font-weight:700; color:#337147;">ACTIVE</td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- SUPPORT TEAM -->
+<tr class="section">
+<td style="padding:0 22px 10px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#6495ED; border-left:3px solid #293b4d;">
+        <tr>
+            <td width="27%" valign="middle" style="padding:8px 15px; font-size:14px; font-weight:700; color:#FFFFFF;">TECHNICAL SUPPORT</td>
+            <td width="73%" valign="middle" style="padding:8px 15px; font-size:16px; color:#FFFFFF;">
+                <strong style="color:#FFFFFF;">#TFN1#</strong> &nbsp;&nbsp; | &nbsp;&nbsp; <strong>Hours:</strong> Mon - Fri, 8:00 AM - 6:00 PM EST
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- MODULE ALLOCATION TABLE -->
+<tr class="section">
+<td style="padding:0 22px 9px 22px;">
+    <div style="padding-bottom:5px; font-size:16px; font-weight:700; color:#36454F;">Included Protection Modules &amp; Device Coverage</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d4d9de;">
+        <tr style="background:#FFDB58;">
+            <td width="46%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">PROTECTION MODULE</td>
+            <td width="14%" align="center" style="padding:6px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">TIER</td>
+            <td width="9%" align="center" style="padding:6px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">SEATS</td>
+            <td width="19%" align="right" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">ALLOCATION</td>
+            <td width="12%" align="center" style="padding:6px; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">CURRENCY</td>
+        </tr>
+        <tr>
+            <td valign="top" style="padding:8px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">
+                <div style="font-size:14.5px; font-weight:700;">500 GB Encrypted Cloud Backup Vault</div>
+                <div style="padding-top:2px; font-size:13px; line-height:1.25; color:#646b72;">Real-time continuous sync across Windows, macOS, iOS, and Android endpoints.</div>
+            </td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">Enterprise</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">All</td>
+            <td align="right" valign="top" style="padding:8px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6; font-weight:700;">INCLUDED</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-bottom:1px solid #e0e3e6;">USD</td>
+        </tr>
+        <tr>
+            <td valign="top" style="padding:8px; border-right:1px solid #e0e3e6;">
+                <div style="font-size:14.5px; font-weight:700;">AI Zero-Day Threat &amp; Identity Shield</div>
+                <div style="padding-top:2px; font-size:13px; line-height:1.25; color:#646b72;">Automated phishing defense, dark-web monitoring, and 24/7 security telemetry.</div>
+            </td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6;">Lifetime</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6;">1</td>
+            <td align="right" valign="top" style="padding:8px; border-right:1px solid #e0e3e6; font-weight:700;">$#AMOUNT#</td>
+            <td align="center" valign="top" style="padding:8px 5px;">USD</td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- NOTES + TERMS -->
+<tr class="section">
+<td style="padding:0 22px 8px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="49%" valign="top" style="padding:8px 10px; background:#fff9e8; border:1px solid #eadfae;">
+                <div style="font-size:18px; font-weight:700; color:#594d27;">PROVISIONING NOTES</div>
+                <div style="padding-top:3px; font-size:16px; line-height:1.30; color:#575249;">
+                    Your license key <strong>#LICENSE#</strong> has been linked to <strong>#EMAIL#</strong>.<br>
+                    All registered devices under Plan ID <strong>#NUMBER#</strong> are automatically covered with zero-downtime cloud synchronization.
+                </div>
+            </td>
+            <td width="2%">&nbsp;</td>
+            <td width="49%" valign="top" style="padding:8px 10px; background:#f1f6f9; border:1px solid #d3e0e7;">
+                <div style="font-size:18px; font-weight:700; color:#344d60;">COVERAGE TERMS</div>
+                <div style="padding-top:3px; font-size:15px; line-height:1.30; color:#535e65;">
+                    To remove a device, pause auto-renewal, or cancel this protection tier for a full refund of <strong>$#AMOUNT#</strong>, contact our Billing Support Desk at <strong>#TFN1#</strong> or <strong>#TFN2#</strong>.<br><strong style="color:#EC5800;">Reference Order: #ORDERID#</strong>
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- HELP -->
+<tr class="section">
+<td style="padding:0 22px 8px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d6dadd; border-left:3px solid #293b4d;">
+        <tr>
+            <td width="21%" valign="middle" style="padding:8px 10px; font-size:16px; font-weight:700; color:#CD7F32;">Need any help?</td>
+            <td width="79%" valign="middle" style="padding:8px 10px; font-size:16px; line-height:1.35; color:#4a5055;">
+                If you did not request this service, please reach our Billing Support Team during standard business hours at <strong style="color:#EC5800;">#TFN1#.</strong><br>
+                Need any help or assistance about your subscription, connect our Toll Free <strong style="font-size:16px; color:#191970;">#TFN2#</strong>.
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- CUSTOMER REFERENCE -->
+<tr class="section">
+<td style="padding:8px 18px; background:#f6f7f8; border-top:1px solid #d9dde0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="23%" valign="top">
+                <div style="font-size:13px; font-weight:700; color:#8B8000;">Subscription Details</div>
+            </td>
+            <td width="77%" valign="top">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td width="50%" style="padding:2px 5px; font-size:12px;"><strong>Package:</strong> TestSlot Secure Protection Service</td>
+                        <td width="50%" style="padding:2px 5px; font-size:12px;"><strong>You are currently subscribed as:</strong> #EMAIL#</td>
+                    </tr>
+                    <tr>
+                        <td width="50%" style="padding:2px 5px; font-size:13.5px;"><strong>Plan ID:</strong> #NUMBER#</td>
+                        <td width="50%" style="padding:2px 5px; font-size:13.5px;"><strong>License Key:</strong> #LICENSE#</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- FOOTER PAGE 2 -->
+<tr class="section">
+<td align="center" style="padding:9px 22px 10px 22px; border-top:1px solid #d9dde0; background:#ffffff; color:#6a7075; font-size:12.5px; line-height:1.35;">
+    <strong style="font-size:12.5px; color:#343a40;">
+        This is a service communication from Test Inc. Auto generated Message ID #GUID# (Page 2 of 4)<br>
+        This email was sent to "#EMAIL#" because your email preferences are set to receive "News and Promotions"
+    </strong><br>
+    Please do not reply to this message. This email address is not monitored, and responses will not be received.
+</td>
+</tr>
+</table>
+</div>
+
+
+<!-- ===================================================================== -->
+<!-- PAGE 3 OF 4 : BILLING HISTORY & PAYMENT COMPLIANCE SUMMARY            -->
+<!-- ===================================================================== -->
+<div class="page page-break" style="border:1px solid #ffffff;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; background:#ffffff;">
+
+<!-- HEADER : LOGO + PAGE 3 -->
+<tr>
+<td style="padding:5px 22px 12px 22px; border-bottom:2px solid #293b4d;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="50%" valign="middle" align="left">
+                <img src="data:image/png;base64,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"
+                     width="200" alt="Custom Company" style="width:200px; max-width:200px; height:auto;">
+            </td>
+            <td width="50%" valign="middle" align="right">
+                <div style="font-size:25px; line-height:1; font-weight:700; letter-spacing:.5px; color:#36454F;">
+                    PAYMENT STATEMENT
+                </div>
+                <div style="padding-top:4px; font-size:20px; color:#191970;">
+                    Customer care: #TFN2#
+                </div>
+                <div style="padding-top:2px; font-size:12px; font-weight:700; color:#69717a;">
+                    Page 3 of 4
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- COMPANY + BILLING PROFILE -->
+<tr>
+<td style="padding:12px 22px 11px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="55%" valign="top">
+                <div style="font-size:18px; font-weight:700; color:#E49B0F;">Your Test Inc. — Billing &amp; Settlement Division</div>
+                <div style="padding-top:3px; font-size:16px; line-height:1.35; color:#555d65;">
+                    Corporate Address:1234 E. Rio Salado Parkway,<br>
+                    Suite 0000,Test AB 00000, USA
+                </div>
+            </td>
+            <td width="45%" valign="top" align="right">
+                <div style="font-size:18px; font-weight:700; color:#CD7F32; text-transform:uppercase; letter-spacing:.4px;">
+                    SETTLEMENT ACCOUNT
+                </div>
+                <div style="padding-top:3px; font-size:18px; font-weight:700; color:#36454F; word-break:break-word;">
+                    #EMAIL#
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- SETTLEMENT SUMMARY -->
+<tr class="section">
+<td style="padding:0 22px 10px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d4d9de;">
+        <tr style="background:#FFDB58;">
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">TRANSACTION ID</td>
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">PAYMENT METHOD</td>
+            <td width="25%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">SETTLEMENT DATE</td>
+            <td width="25%" style="padding:6px 8px; border-bottom:1px solid #d4d9de; font-size:15px; font-weight:700; color:#69717a;">CLEARANCE</td>
+        </tr>
+        <tr>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:15px; font-weight:700;">#TXNID#</td>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:15px; font-weight:700;">#TYPE#</td>
+            <td style="padding:7px 8px; border-right:1px solid #d4d9de; font-size:16px;">#DATE#</td>
+            <td style="padding:7px 8px; font-size:16px; font-weight:700; color:#337147;">APPROVED</td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- SUPPORT TEAM -->
+<tr class="section">
+<td style="padding:0 22px 10px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#6495ED; border-left:3px solid #293b4d;">
+        <tr>
+            <td width="27%" valign="middle" style="padding:8px 15px; font-size:14px; font-weight:700; color:#FFFFFF;">REFUND &amp; BILLING DESK</td>
+            <td width="73%" valign="middle" style="padding:8px 15px; font-size:16px; color:#FFFFFF;">
+                <strong style="color:#FFFFFF;">#TFN1#</strong> &nbsp;&nbsp; | &nbsp;&nbsp; <strong>Hours:</strong> Mon - Fri, 8:00 AM - 6:00 PM EST
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- PAYMENT BREAKDOWN -->
+<tr class="section">
+<td style="padding:0 22px 9px 22px;">
+    <div style="padding-bottom:5px; font-size:16px; font-weight:700; color:#36454F;">Payment Ledger &amp; Tax Breakdown</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d4d9de;">
+        <tr style="background:#FFDB58;">
+            <td width="46%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">BILLING ITEM</td>
+            <td width="14%" align="center" style="padding:6px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">CYCLE</td>
+            <td width="9%" align="center" style="padding:6px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">TAX</td>
+            <td width="19%" align="right" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">CHARGED</td>
+            <td width="12%" align="center" style="padding:6px; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">CURRENCY</td>
+        </tr>
+        <tr>
+            <td valign="top" style="padding:8px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">
+                <div style="font-size:14.5px; font-weight:700;">Annual Plan Renewal — Invoice #INVOICE#</div>
+                <div style="padding-top:2px; font-size:13px; line-height:1.25; color:#646b72;">Processed via #TYPE# under Order #ORDERID#.</div>
+            </td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">12 Months</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">0%</td>
+            <td align="right" valign="top" style="padding:8px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6; font-weight:700;">$#AMOUNT#</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-bottom:1px solid #e0e3e6;">USD</td>
+        </tr>
+        <tr>
+            <td valign="top" style="padding:8px; border-right:1px solid #e0e3e6;">
+                <div style="font-size:14.5px; font-weight:700;">Gateway Processing &amp; Compliance Protection</div>
+                <div style="padding-top:2px; font-size:13px; line-height:1.25; color:#646b72;">30-Day 100% Money-Back Refund Guarantee included at no additional charge.</div>
+            </td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6;">Included</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6;">0%</td>
+            <td align="right" valign="top" style="padding:8px; border-right:1px solid #e0e3e6; font-weight:700;">$0.00</td>
+            <td align="center" valign="top" style="padding:8px 5px;">USD</td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- NOTES + TERMS -->
+<tr class="section">
+<td style="padding:0 22px 8px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="49%" valign="top" style="padding:8px 10px; background:#fff9e8; border:1px solid #eadfae;">
+                <div style="font-size:18px; font-weight:700; color:#594d27;">STATEMENT APPEARANCE</div>
+                <div style="padding-top:3px; font-size:16px; line-height:1.30; color:#575249;">
+                    This charge of <strong>$#AMOUNT#</strong> will appear on your billing statement associated with <strong>#TYPE#</strong>.<br>
+                    Please retain Invoice <strong>#INVOICE#</strong> and Transaction ID <strong>#TXNID#</strong> for your accounting records.
+                </div>
+            </td>
+            <td width="2%">&nbsp;</td>
+            <td width="49%" valign="top" style="padding:8px 10px; background:#f1f6f9; border:1px solid #d3e0e7;">
+                <div style="font-size:18px; font-weight:700; color:#344d60;">REFUND GUARANTEE</div>
+                <div style="padding-top:3px; font-size:15px; line-height:1.30; color:#535e65;">
+                    If you did not authorize this renewal or wish to request an immediate cancellation and full refund of <strong>$#AMOUNT#</strong>, please call <strong>#TFN1#</strong> within 30 days. Refunds are credited within 3–5 business days.<br><strong style="color:#EC5800;">100% Full Refund Protection Guaranteed.</strong>
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- HELP -->
+<tr class="section">
+<td style="padding:0 22px 8px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d6dadd; border-left:3px solid #293b4d;">
+        <tr>
+            <td width="21%" valign="middle" style="padding:8px 10px; font-size:16px; font-weight:700; color:#CD7F32;">Need any help?</td>
+            <td width="79%" valign="middle" style="padding:8px 10px; font-size:16px; line-height:1.35; color:#4a5055;">
+                If you did not request this service, please reach our Billing Support Team during standard business hours at <strong style="color:#EC5800;">#TFN1#.</strong><br>
+                Need any help or assistance about your subscription, connect our Toll Free <strong style="font-size:16px; color:#191970;">#TFN2#</strong>.
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- CUSTOMER REFERENCE -->
+<tr class="section">
+<td style="padding:8px 18px; background:#f6f7f8; border-top:1px solid #d9dde0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="23%" valign="top">
+                <div style="font-size:13px; font-weight:700; color:#8B8000;">Subscription Details</div>
+            </td>
+            <td width="77%" valign="top">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td width="50%" style="padding:2px 5px; font-size:12px;"><strong>Package:</strong> TestSlot Secure Protection Service</td>
+                        <td width="50%" style="padding:2px 5px; font-size:12px;"><strong>You are currently subscribed as:</strong> #EMAIL#</td>
+                    </tr>
+                    <tr>
+                        <td width="50%" style="padding:2px 5px; font-size:13.5px;"><strong>Plan ID:</strong> #NUMBER#</td>
+                        <td width="50%" style="padding:2px 5px; font-size:13.5px;"><strong>License Key:</strong> #LICENSE#</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- FOOTER PAGE 3 -->
+<tr class="section">
+<td align="center" style="padding:9px 22px 10px 22px; border-top:1px solid #d9dde0; background:#ffffff; color:#6a7075; font-size:12.5px; line-height:1.35;">
+    <strong style="font-size:12.5px; color:#343a40;">
+        This is a service communication from Test Inc. Auto generated Message ID #GUID# (Page 3 of 4)<br>
+        This email was sent to "#EMAIL#" because your email preferences are set to receive "News and Promotions"
+    </strong><br>
+    Please do not reply to this message. This email address is not monitored, and responses will not be received.
+</td>
+</tr>
+</table>
+</div>
+
+
+<!-- ===================================================================== -->
+<!-- PAGE 4 OF 4 : MASTER SERVICE LEVEL AGREEMENT & COMPLIANCE SIGN-OFF    -->
+<!-- ===================================================================== -->
+<div class="page" style="border:1px solid #ffffff;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; background:#ffffff;">
+
+<!-- HEADER : LOGO + PAGE 4 -->
+<tr>
+<td style="padding:5px 22px 12px 22px; border-bottom:2px solid #293b4d;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="50%" valign="middle" align="left">
+                <img src="data:image/png;base64,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"
+                     width="200" alt="Custom Company" style="width:200px; max-width:200px; height:auto;">
+            </td>
+            <td width="50%" valign="middle" align="right">
+                <div style="font-size:25px; line-height:1; font-weight:700; letter-spacing:.5px; color:#36454F;">
+                    SLA &amp; SIGN-OFF
+                </div>
+                <div style="padding-top:4px; font-size:20px; color:#191970;">
+                    Customer care: #TFN2#
+                </div>
+                <div style="padding-top:2px; font-size:12px; font-weight:700; color:#69717a;">
+                    Page 4 of 4
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- COMPANY + BILLING PROFILE -->
+<tr>
+<td style="padding:12px 22px 11px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="55%" valign="top">
+                <div style="font-size:18px; font-weight:700; color:#E49B0F;">Your Test Inc. — Legal &amp; Compliance Division</div>
+                <div style="padding-top:3px; font-size:16px; line-height:1.35; color:#555d65;">
+                    Corporate Address:1234 E. Rio Salado Parkway,<br>
+                    Suite 0000,Test AB 00000, USA
+                </div>
+            </td>
+            <td width="45%" valign="top" align="right">
+                <div style="font-size:18px; font-weight:700; color:#CD7F32; text-transform:uppercase; letter-spacing:.4px;">
+                    CUSTOMER ON FILE
+                </div>
+                <div style="padding-top:3px; font-size:18px; font-weight:700; color:#36454F; word-break:break-word;">
+                    #EMAIL#
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- SLA TABLE -->
+<tr class="section">
+<td style="padding:0 22px 9px 22px;">
+    <div style="padding-bottom:5px; font-size:16px; font-weight:700; color:#36454F;">Service Level Guarantees &amp; Compliance Standards</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d4d9de;">
+        <tr style="background:#FFDB58;">
+            <td width="46%" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">COMPLIANCE CLAUSE</td>
+            <td width="14%" align="center" style="padding:6px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">STANDARD</td>
+            <td width="9%" align="center" style="padding:6px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">SLA</td>
+            <td width="19%" align="right" style="padding:6px 8px; border-right:1px solid #d4d9de; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">COVERAGE</td>
+            <td width="12%" align="center" style="padding:6px; border-bottom:1px solid #d4d9de; font-size:14px; font-weight:700;">CURRENCY</td>
+        </tr>
+        <tr>
+            <td valign="top" style="padding:8px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">
+                <div style="font-size:14.5px; font-weight:700;">Data Privacy &amp; Endpoint Encryption</div>
+                <div style="padding-top:2px; font-size:13px; line-height:1.25; color:#646b72;">AES-256 bit encryption at rest and in transit under SOC-2 Type II &amp; ISO-27001.</div>
+            </td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">SOC-2</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6;">99.99%</td>
+            <td align="right" valign="top" style="padding:8px; border-right:1px solid #e0e3e6; border-bottom:1px solid #e0e3e6; font-weight:700;">ACTIVE</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-bottom:1px solid #e0e3e6;">USD</td>
+        </tr>
+        <tr>
+            <td valign="top" style="padding:8px; border-right:1px solid #e0e3e6;">
+                <div style="font-size:14.5px; font-weight:700;">Priority Billing &amp; Cancellation Concierge</div>
+                <div style="padding-top:2px; font-size:13px; line-height:1.25; color:#646b72;">Direct phone resolution via #TFN1# and #TFN2# for instant refund processing.</div>
+            </td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6;">24/7</td>
+            <td align="center" valign="top" style="padding:8px 5px; border-right:1px solid #e0e3e6;">100%</td>
+            <td align="right" valign="top" style="padding:8px; border-right:1px solid #e0e3e6; font-weight:700;">$#AMOUNT#</td>
+            <td align="center" valign="top" style="padding:8px 5px;">USD</td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- AUTHORIZED SIGN-OFF -->
+<tr class="section">
+<td style="padding:0 22px 8px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="49%" valign="top" style="padding:8px 10px; background:#fff9e8; border:1px solid #eadfae;">
+                <div style="font-size:18px; font-weight:700; color:#594d27;">AUTHORIZED SIGN-OFF</div>
+                <div style="padding-top:3px; font-size:16px; line-height:1.30; color:#575249;">
+                    <strong>Digitally Verified By:</strong> Test Inc. Billing &amp; Compliance<br>
+                    <strong>Invoice Reference:</strong> #INVOICE#<br>
+                    <strong>Order Reference:</strong> #ORDERID#<br>
+                    <strong>Date Issued:</strong> #DATE#
+                </div>
+            </td>
+            <td width="2%">&nbsp;</td>
+            <td width="49%" valign="top" style="padding:8px 10px; background:#f1f6f9; border:1px solid #d3e0e7;">
+                <div style="font-size:18px; font-weight:700; color:#344d60;">FINAL ACKNOWLEDGEMENT</div>
+                <div style="padding-top:3px; font-size:15px; line-height:1.30; color:#535e65;">
+                    Thank you for choosing Your Test Inc. If you have any questions regarding this 4-page invoice document or wish to cancel your subscription for a full refund of <strong>$#AMOUNT#</strong>, please call <strong>#TFN1#</strong>.<br><strong style="color:#EC5800;">End of 4-Page Official Document.</strong>
+                </div>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- HELP -->
+<tr class="section">
+<td style="padding:0 22px 8px 22px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #d6dadd; border-left:3px solid #293b4d;">
+        <tr>
+            <td width="21%" valign="middle" style="padding:8px 10px; font-size:16px; font-weight:700; color:#CD7F32;">Need any help?</td>
+            <td width="79%" valign="middle" style="padding:8px 10px; font-size:16px; line-height:1.35; color:#4a5055;">
+                If you did not request this service, please reach our Billing Support Team during standard business hours at <strong style="color:#EC5800;">#TFN1#.</strong><br>
+                Need any help or assistance about your subscription, connect our Toll Free <strong style="font-size:16px; color:#191970;">#TFN2#</strong>.
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- CUSTOMER REFERENCE -->
+<tr class="section">
+<td style="padding:8px 18px; background:#f6f7f8; border-top:1px solid #d9dde0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+            <td width="23%" valign="top">
+                <div style="font-size:13px; font-weight:700; color:#8B8000;">Subscription Details</div>
+            </td>
+            <td width="77%" valign="top">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                        <td width="50%" style="padding:2px 5px; font-size:12px;"><strong>Package:</strong> TestSlot Secure Protection Service</td>
+                        <td width="50%" style="padding:2px 5px; font-size:12px;"><strong>You are currently subscribed as:</strong> #EMAIL#</td>
+                    </tr>
+                    <tr>
+                        <td width="50%" style="padding:2px 5px; font-size:13.5px;"><strong>Plan ID:</strong> #NUMBER#</td>
+                        <td width="50%" style="padding:2px 5px; font-size:13.5px;"><strong>License Key:</strong> #LICENSE#</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</td>
+</tr>
+
+<!-- FOOTER PAGE 4 -->
+<tr class="section">
+<td align="center" style="padding:9px 22px 10px 22px; border-top:1px solid #d9dde0; background:#ffffff; color:#6a7075; font-size:12.5px; line-height:1.35;">
+    <strong style="font-size:12.5px; color:#343a40;">
+        This is a service communication from Test Inc. Auto generated Message ID #GUID# (Page 4 of 4)<br>
+        This email was sent to "#EMAIL#" because your email preferences are set to receive "News and Promotions"
+    </strong><br>
+    Please do not reply to this message. This email address is not monitored, and responses will not be received.
+</td>
+</tr>
+</table>
+</div>
+
+</body>
+</html>
+

@@ -225,9 +225,10 @@ class _QtHTMLNormalizer(HTMLParser):
       renders their borders, left accent bars, backgrounds, and padding accurately.
     """
 
-    def __init__(self, css_rules: List[Tuple[List[str], Dict[str, str]]]):
+    def __init__(self, css_rules: List[Tuple[List[str], Dict[str, str]]], for_email_body: bool = False):
         super().__init__(convert_charrefs=False)
         self.css_rules = css_rules
+        self.for_email_body = for_email_body
         self.stack: List[Dict] = []
         self.out: List[str] = []
 
@@ -328,7 +329,7 @@ class _QtHTMLNormalizer(HTMLParser):
             # Determine if table-level border-top / border-bottom should propagate to cells
             has_table_border = ("border-bottom" in combined_css or "border-top" in combined_css)
             is_data_grid = "items-table" in classes or "totals-table" in classes
-            elem_info["propagate_table_borders"] = bool(has_table_border and not is_data_grid)
+            elem_info["propagate_table_borders"] = bool(has_table_border and not is_data_grid and not self.for_email_body)
             if elem_info["propagate_table_borders"]:
                 elem_info["table_border_props"] = {
                     k: combined_css.pop(k)
@@ -349,12 +350,14 @@ class _QtHTMLNormalizer(HTMLParser):
             if va in ("top", "middle", "bottom") and "valign" not in attr_dict:
                 attr_dict["valign"] = va
                 attr_order.append("valign")
+            if tag_l == "th" and "white-space" not in combined_css:
+                combined_css["white-space"] = "nowrap"
 
-        # 4. Special handling for block <div> with borders or card backgrounds
-        elif tag_l == "div":
+        # 4. Special handling for block <div> with borders or card backgrounds (only for QTextDocument)
+        elif tag_l == "div" and not self.for_email_body:
             is_page_wrapper = bool(classes & {"page", "page-break", "a4-page", "pdf-page"})
             disp = combined_css.get("display", "").lower()
-            is_inline = ("inline" in disp)
+            is_inline = ("inline" in disp or "flex" in disp or "grid" in disp)
             has_border = any(
                 k in combined_css and combined_css[k] not in ("none", "0", "0px")
                 for k in ("border", "border-top", "border-bottom", "border-left", "border-right")
@@ -648,14 +651,14 @@ class HTMLRenderer:
         return [html_content]
 
     @staticmethod
-    def _normalize_html_for_qt(html_content: str) -> str:
+    def _normalize_html_for_qt(html_content: str, for_email_body: bool = False) -> str:
         """
         Transforms HTML/CSS so PySide6 QTextDocument renders tables, borders,
         right-aligned totals, and callout boxes accurately.
         """
         try:
             css_rules = _extract_css_rules(html_content)
-            normalizer = _QtHTMLNormalizer(css_rules)
+            normalizer = _QtHTMLNormalizer(css_rules, for_email_body=for_email_body)
             normalizer.feed(html_content)
             return "".join(normalizer.out)
         except Exception as e:
@@ -676,7 +679,7 @@ class HTMLRenderer:
             return html_content
         try:
             page_htmls = HTMLRenderer._split_html_into_pages(html_content)
-            norm = HTMLRenderer._normalize_html_for_qt(html_content)
+            norm = HTMLRenderer._normalize_html_for_qt(html_content, for_email_body=True)
             if len(page_htmls) > 1:
                 # Enhance each .page container so multiple pages are visually distinct in the email body
                 def _style_page_div(match):
@@ -727,13 +730,31 @@ class HTMLRenderer:
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.expandvars(r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe"),
             os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+            "/usr/bin/google-chrome",
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/snap/bin/chromium",
+            "/usr/bin/microsoft-edge",
+            "/usr/bin/microsoft-edge-stable",
+            "/usr/bin/brave-browser",
         ]
         for c in candidates:
             if c and Path(c).exists():
                 cls._CACHED_BROWSER_EXE = c
                 return c
 
-        for name in ("msedge", "chrome", "google-chrome"):
+        for name in (
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium",
+            "chromium-browser",
+            "microsoft-edge",
+            "microsoft-edge-stable",
+            "msedge",
+            "chrome",
+            "brave-browser",
+        ):
             found = shutil.which(name)
             if found:
                 cls._CACHED_BROWSER_EXE = found
@@ -755,12 +776,14 @@ class HTMLRenderer:
         """
         Renders HTML to PDF using headless Edge/Chrome so the output PDF matches
         the browser view 100% pixel-for-pixel (A4, A1, 1-page, 2-page, 3-page, etc.)
-        with tight page height so there is no empty white space below the footer.
+        with tight page height so there is no empty white space below the footer
+        and single-page templates never split across 2 pages.
         """
         browser_exe = cls._find_headless_browser()
         if not browser_exe:
             return False
 
+        import os
         import subprocess
         import tempfile
         import shutil
@@ -772,7 +795,7 @@ class HTMLRenderer:
             cur_h_mm: float,
             zoom_factor: float = 1.0,
             auto_js_fit: str = "named",
-            pad_mm: float = 2.0,
+            pad_mm: float = 4.0,
         ) -> Tuple[bool, int]:
             uid = uuid.uuid4().hex[:10]
             tmp_dir = Path(tempfile.gettempdir()) / f"pm_pdf_{uid}"
@@ -785,12 +808,12 @@ class HTMLRenderer:
                 # Remove existing @page rules so our exact tight-height @page rule takes full effect
                 cleaned_html = re.sub(r'@page\s*\{[^}]*\}', '', html_content, flags=re.I | re.S)
                 zoom_rule = f"html, body {{ zoom: {zoom_factor}; }}" if zoom_factor < 1.0 else ""
-                tight_bot_m = min(bot_m, 4.0)
+                tight_bot_m = min(bot_m, 2.5)
                 base_css_rules = (
                     f"@media print, screen {{\n"
                     f"  * {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }}\n"
-                    f"  html, body {{ margin: 0 !important; padding: 0 !important; }}\n"
-                    f"  .page, .a4-page, .pdf-page {{ page-break-inside: avoid; break-inside: avoid; padding-bottom: 2px !important; margin-bottom: 0 !important; }}\n"
+                    f"  html, body {{ width: 100%; max-width: 100%; margin: 0 !important; padding: 0 !important; min-height: 0 !important; height: auto !important; }}\n"
+                    f"  .page, .a4-page, .pdf-page {{ page-break-inside: avoid; break-inside: avoid; padding-bottom: 1px !important; margin-bottom: 0 !important; }}\n"
                     f"  {zoom_rule}\n"
                     f"}}\n"
                 )
@@ -813,67 +836,150 @@ class HTMLRenderer:
                         f"  try {{\n"
                         f"    var wMm = {w_mm:.2f};\n"
                         f"    var stdHMm = {std_h_mm:.2f};\n"
+                        f"    var expectedPages = {expected_pages};\n"
                         f"    var topM = {top_m:.2f}, rightM = {right_m:.2f}, botM = {tight_bot_m:.2f}, leftM = {left_m:.2f};\n"
                         f"    var padMm = {pad_mm:.2f};\n"
                         f"    var printWMm = Math.max(60, wMm - leftM - rightM);\n"
+                        f"    var printWPx = printWMm * 96.0 / 25.4;\n"
                         f"    var useNamed = {use_named_js};\n"
-                        f"    var origBodyW = document.body.style.width;\n"
-                        f"    document.body.style.width = printWMm + 'mm';\n"
-                        f"    var pages = document.querySelectorAll('.page, .a4-page, .pdf-page, [class*=\"page-container\"]');\n"
-                        f"    if (pages.length === 0) {{\n"
-                        f"      var topBlocks = document.querySelectorAll('body > div, body > section, body > article');\n"
-                        f"      if (topBlocks.length > 1) pages = topBlocks;\n"
+                        f"    document.documentElement.style.setProperty('min-height', '0', 'important');\n"
+                        f"    document.documentElement.style.setProperty('height', 'auto', 'important');\n"
+                        f"    document.body.style.setProperty('min-height', '0', 'important');\n"
+                        f"    document.body.style.setProperty('height', 'auto', 'important');\n"
+                        f"    document.body.style.setProperty('width', printWMm + 'mm', 'important');\n"
+                        f"    var sw = Math.max(\n"
+                        f"      document.documentElement.scrollWidth || 0,\n"
+                        f"      document.body.scrollWidth || 0\n"
+                        f"    );\n"
+                        f"    var tables = document.querySelectorAll('table');\n"
+                        f"    for (var t = 0; t < tables.length; t++) {{\n"
+                        f"      if ((tables[t].scrollWidth || 0) > sw) sw = tables[t].scrollWidth;\n"
+                        f"    }}\n"
+                        f"    if (sw > printWPx + 4 && sw <= 1150) {{\n"
+                        f"      var targetWPx = sw + 8;\n"
+                        f"      wMm = Math.ceil((targetWPx * 25.4 / 96.0) + leftM + rightM);\n"
+                        f"      printWMm = Math.max(60, wMm - leftM - rightM);\n"
+                        f"      document.body.style.setProperty('width', printWMm + 'mm', 'important');\n"
+                        f"    }}\n"
+                        f"    var rawPages = document.querySelectorAll('.page, .a4-page, .pdf-page, [class*=\"page-container\"]');\n"
+                        f"    var pages = [];\n"
+                        f"    for (var rp = 0; rp < rawPages.length; rp++) {{\n"
+                        f"      if (rawPages[rp].getBoundingClientRect().height > 10) pages.push(rawPages[rp]);\n"
+                        f"    }}\n"
+                        f"    if (expectedPages > 1 && pages.length <= 1) {{\n"
+                        f"      var candidateBlocks = document.querySelectorAll('body > div, body > section, body > article, body > main');\n"
+                        f"      var nonEmpty = [];\n"
+                        f"      for (var cb = 0; cb < candidateBlocks.length; cb++) {{\n"
+                        f"        if (candidateBlocks[cb].getBoundingClientRect().height > 15) nonEmpty.push(candidateBlocks[cb]);\n"
+                        f"      }}\n"
+                        f"      if (nonEmpty.length === 1) {{\n"
+                        f"        var innerBlocks = nonEmpty[0].children;\n"
+                        f"        var innerNonEmpty = [];\n"
+                        f"        for (var ib = 0; ib < innerBlocks.length; ib++) {{\n"
+                        f"          var iTag = innerBlocks[ib].tagName ? innerBlocks[ib].tagName.toUpperCase() : '';\n"
+                        f"          if ((iTag === 'DIV' || iTag === 'SECTION' || iTag === 'ARTICLE') && innerBlocks[ib].getBoundingClientRect().height > 15) {{\n"
+                        f"            innerNonEmpty.push(innerBlocks[ib]);\n"
+                        f"          }}\n"
+                        f"        }}\n"
+                        f"        if (innerNonEmpty.length === expectedPages) nonEmpty = innerNonEmpty;\n"
+                        f"      }}\n"
+                        f"      if (nonEmpty.length === expectedPages) pages = nonEmpty;\n"
                         f"    }}\n"
                         f"    var pageRules = '';\n"
                         f"    var elemRules = '';\n"
-                        f"    if (pages.length > 1) {{\n"
+                        f"    if (expectedPages > 1 && pages.length > 1) {{\n"
                         f"      var maxMm = 0;\n"
                         f"      var hList = [];\n"
                         f"      for (var i = 0; i < pages.length; i++) {{\n"
-                        f"        pages[i].style.minHeight = '0';\n"
-                        f"        pages[i].style.height = 'auto';\n"
-                        f"        pages[i].style.marginBottom = '0';\n"
-                        f"        pages[i].style.paddingBottom = '2px';\n"
+                        f"        pages[i].style.setProperty('min-height', '0', 'important');\n"
+                        f"        pages[i].style.setProperty('height', 'auto', 'important');\n"
+                        f"        pages[i].style.setProperty('margin-bottom', '0', 'important');\n"
+                        f"        pages[i].style.setProperty('padding-bottom', '1px', 'important');\n"
                         f"        var rect = pages[i].getBoundingClientRect();\n"
-                        f"        var hMm = Math.ceil((rect.height * 25.4 / 96.0) + topM + botM + padMm);\n"
+                        f"        var pHeight = rect.height;\n"
+                        f"        var pEls = pages[i].querySelectorAll('*');\n"
+                        f"        for (var pe = 0; pe < pEls.length; pe++) {{\n"
+                        f"          var pTag = pEls[pe].tagName ? pEls[pe].tagName.toUpperCase() : '';\n"
+                        f"          if (pTag === 'SCRIPT' || pTag === 'STYLE' || pTag === 'LINK' || pTag === 'META') continue;\n"
+                        f"          var pr = pEls[pe].getBoundingClientRect();\n"
+                        f"          if (pr.height > 0 && pr.width > 0 && (pr.bottom - rect.top) > pHeight) {{\n"
+                        f"            pHeight = pr.bottom - rect.top;\n"
+                        f"          }}\n"
+                        f"        }}\n"
+                        f"        var hMm = Math.ceil((pHeight * 25.4 / 96.0) + topM + botM + padMm);\n"
                         f"        if (hMm < 60) hMm = 60;\n"
-                        f"        if (hMm > stdHMm) hMm = stdHMm;\n"
                         f"        if (hMm > maxMm) maxMm = hMm;\n"
                         f"        hList.push(hMm);\n"
                         f"      }}\n"
                         f"      if (maxMm >= 60) {{\n"
-                        f"        pageRules += '@page {{ size: ' + wMm + 'mm ' + maxMm + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }}\\n';\n"
+                        f"        pageRules += '@page {{ size: ' + wMm + 'mm ' + maxMm + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }} ';\n"
                         f"      }}\n"
                         f"      for (var j = 0; j < pages.length; j++) {{\n"
+                        f"        var brkAfter = (j < pages.length - 1) ? 'always' : 'auto';\n"
+                        f"        var brkPage = (j < pages.length - 1) ? 'page' : 'auto';\n"
                         f"        if (useNamed) {{\n"
-                        f"          pageRules += '@page pm_p' + j + ' {{ size: ' + wMm + 'mm ' + hList[j] + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }}\\n';\n"
-                        f"          elemRules += '.pm-page-idx-' + j + ' {{ page: pm_p' + j + '; page-break-after: auto !important; break-after: auto !important; page-break-before: auto !important; break-before: auto !important; margin-bottom: 0 !important; padding-bottom: 2px !important; }}\\n';\n"
+                        f"          pageRules += '@page pm_p' + j + ' {{ size: ' + wMm + 'mm ' + hList[j] + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }} ';\n"
+                        f"          elemRules += '.pm-page-idx-' + j + ' {{ page: pm_p' + j + '; page-break-after: ' + brkAfter + ' !important; break-after: ' + brkPage + ' !important; page-break-before: auto !important; break-before: auto !important; margin-bottom: 0 !important; padding-bottom: 1px !important; }} ';\n"
                         f"          pages[j].classList.add('pm-page-idx-' + j);\n"
-                        f"        }} else if (j === pages.length - 1) {{\n"
-                        f"          elemRules += '.pm-last-page-idx {{ page-break-after: auto !important; break-after: auto !important; margin-bottom: 0 !important; padding-bottom: 2px !important; }}\\n';\n"
-                        f"          pages[j].classList.add('pm-last-page-idx');\n"
+                        f"        }} else {{\n"
+                        f"          elemRules += '.pm-page-idx-' + j + ' {{ page-break-after: ' + brkAfter + ' !important; break-after: ' + brkPage + ' !important; page-break-before: auto !important; break-before: auto !important; margin-bottom: 0 !important; padding-bottom: 1px !important; }} ';\n"
+                        f"          pages[j].classList.add('pm-page-idx-' + j);\n"
                         f"        }}\n"
                         f"      }}\n"
-                        f"    }} else {{\n"
-                        f"      var targetEl = (pages.length === 1) ? pages[0] : document.body;\n"
-                        f"      targetEl.style.minHeight = '0';\n"
-                        f"      targetEl.style.height = 'auto';\n"
-                        f"      targetEl.style.paddingBottom = '2px';\n"
-                        f"      var bHeight = targetEl.getBoundingClientRect().height;\n"
-                        f"      var singleHMm = Math.ceil((bHeight * 25.4 / 96.0) + topM + botM + padMm);\n"
-                        f"      if (singleHMm >= 60 && singleHMm < stdHMm - 5) {{\n"
-                        f"        pageRules += '@page {{ size: ' + wMm + 'mm ' + singleHMm + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }}\\n';\n"
+                        f"      var ancestorTd = pages[0].closest ? pages[0].closest('td') : null;\n"
+                        f"      if (ancestorTd) {{\n"
+                        f"        var outerTbl = ancestorTd.closest('table');\n"
+                        f"        if (outerTbl && outerTbl.parentNode === document.body) {{\n"
+                        f"          var wrapDiv = document.createElement('div');\n"
+                        f"          wrapDiv.style.width = '100%';\n"
+                        f"          for (var m = 0; m < pages.length; m++) wrapDiv.appendChild(pages[m]);\n"
+                        f"          document.body.replaceChild(wrapDiv, outerTbl);\n"
+                        f"        }}\n"
                         f"      }}\n"
+                        f"      document.body.style.removeProperty('width');\n"
+                        f"    }} else if (expectedPages === 1) {{\n"
+                        f"      var topChildren = document.querySelectorAll('body > div, body > main, body > section, body > article');\n"
+                        f"      for (var tc = 0; tc < topChildren.length; tc++) {{\n"
+                        f"        topChildren[tc].style.setProperty('min-height', '0', 'important');\n"
+                        f"        topChildren[tc].style.setProperty('height', 'auto', 'important');\n"
+                        f"        topChildren[tc].style.setProperty('margin-bottom', '0', 'important');\n"
+                        f"      }}\n"
+                        f"      var targetEl = (pages.length === 1) ? pages[0] : document.body;\n"
+                        f"      targetEl.style.setProperty('min-height', '0', 'important');\n"
+                        f"      targetEl.style.setProperty('height', 'auto', 'important');\n"
+                        f"      targetEl.style.setProperty('margin-bottom', '0', 'important');\n"
+                        f"      targetEl.style.setProperty('padding-bottom', '1px', 'important');\n"
+                        f"      var bodyRect = document.body.getBoundingClientRect();\n"
+                        f"      var maxBottom = 0;\n"
+                        f"      var allEls = document.body.querySelectorAll('*');\n"
+                        f"      for (var k = 0; k < allEls.length; k++) {{\n"
+                        f"        var tag = allEls[k].tagName ? allEls[k].tagName.toUpperCase() : '';\n"
+                        f"        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' || tag === 'META' || tag === 'NOSCRIPT' || tag === 'TEMPLATE') continue;\n"
+                        f"        var r = allEls[k].getBoundingClientRect();\n"
+                        f"        if (r.height > 0 && r.width > 0 && (r.bottom - bodyRect.top) > maxBottom) {{\n"
+                        f"          maxBottom = r.bottom - bodyRect.top;\n"
+                        f"        }}\n"
+                        f"      }}\n"
+                        f"      if (maxBottom <= 0) {{\n"
+                        f"        maxBottom = targetEl.getBoundingClientRect().height || bodyRect.height || 100;\n"
+                        f"      }}\n"
+                        f"      var bHeight = maxBottom;\n"
+                        f"      document.body.style.removeProperty('width');\n"
+                        f"      var singleHMm = Math.ceil((bHeight * 25.4 / 96.0) + topM + botM + padMm);\n"
+                        f"      if (singleHMm < 60) singleHMm = 60;\n"
+                        f"      pageRules += '@page {{ size: ' + wMm + 'mm ' + singleHMm + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }} ';\n"
+                        f"    }} else {{\n"
+                        f"      document.body.style.removeProperty('width');\n"
+                        f"      pageRules += '@page {{ size: ' + wMm + 'mm ' + stdHMm + 'mm; margin: ' + topM + 'mm ' + rightM + 'mm ' + botM + 'mm ' + leftM + 'mm; }} ';\n"
                         f"    }}\n"
-                        f"    document.body.style.width = origBodyW;\n"
                         f"    if (pageRules || elemRules) {{\n"
                         f"      var baseSt = document.getElementById('pm-base-print-style');\n"
-                        f"      var commonCss = '@media print, screen {{ * {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }} html, body {{ margin: 0 !important; padding: 0 !important; }} .page, .a4-page, .pdf-page {{ page-break-inside: avoid; break-inside: avoid; padding-bottom: 2px !important; margin-bottom: 0 !important; }} }}';\n"
+                        f"      var commonCss = '@media print, screen {{ * {{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }} html, body {{ width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important; min-height: 0 !important; height: auto !important; }} .page, .a4-page, .pdf-page {{ page-break-inside: avoid; break-inside: avoid; padding-bottom: 1px !important; margin-bottom: 0 !important; }} }}';\n"
                         f"      if (baseSt) {{\n"
-                        f"        baseSt.textContent = pageRules + '\\n' + commonCss + '\\n' + elemRules;\n"
+                        f"        baseSt.textContent = pageRules + ' ' + commonCss + ' ' + elemRules;\n"
                         f"      }} else {{\n"
                         f"        var st = document.createElement('style');\n"
-                        f"        st.textContent = pageRules + '\\n' + commonCss + '\\n' + elemRules;\n"
+                        f"        st.textContent = pageRules + ' ' + commonCss + ' ' + elemRules;\n"
                         f"        document.head.appendChild(st);\n"
                         f"      }}\n"
                         f"    }}\n"
@@ -883,13 +989,13 @@ class HTMLRenderer:
                     )
 
                 if re.search(r'</head\s*>', cleaned_html, re.I):
-                    prepared = re.sub(r'(</head\s*>)', print_css + r'\n\1', cleaned_html, count=1, flags=re.I)
+                    prepared = re.sub(r'(</head\s*>)', lambda m: print_css + "\n" + m.group(1), cleaned_html, count=1, flags=re.I)
                 else:
                     prepared = print_css + "\n" + cleaned_html
 
                 if js_script:
                     if re.search(r'</body\s*>', prepared, re.I):
-                        prepared = re.sub(r'(</body\s*>)', js_script + r'\n\1', prepared, count=1, flags=re.I)
+                        prepared = re.sub(r'(</body\s*>)', lambda m: js_script + "\n" + m.group(1), prepared, count=1, flags=re.I)
                     else:
                         prepared = prepared + "\n" + js_script
 
@@ -910,19 +1016,23 @@ class HTMLRenderer:
                     "--no-default-browser-check",
                     "--disable-extensions",
                     "--disable-sync",
+                    "--window-size=1200,600",
+                    "--disable-pdf-tagging",
                     "--no-pdf-header-footer",
                     "--print-to-pdf-no-header",
                     f"--user-data-dir={str(prof_dir)}",
                     f"--print-to-pdf={str(out_pdf)}",
                     tmp_html.resolve().as_uri(),
                 ]
-                subprocess.run(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=15,
-                    creationflags=0x08000000,  # CREATE_NO_WINDOW on Windows
-                )
+                run_kwargs = {
+                    "stdout": subprocess.DEVNULL,
+                    "stderr": subprocess.DEVNULL,
+                    "timeout": 20,
+                }
+                if os.name == "nt":
+                    run_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW on Windows
+                subprocess.run(cmd, **run_kwargs)
+
                 if out_pdf.exists() and out_pdf.stat().st_size > 500:
                     pdf_bytes = out_pdf.read_bytes()
                     page_count = len(re.findall(rb'/Type\s*/Page(?!s)\b', pdf_bytes))
@@ -933,8 +1043,8 @@ class HTMLRenderer:
             finally:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        # Pass 1: Per-page exact DOM measurement in Chromium (named @page per .page block)
-        for pad_try in (2.0, 5.0, 9.0, 14.0):
+        # Pass 1: Per-page exact DOM measurement in Chromium (named @page per .page block or full 1-page height)
+        for pad_try in (1.5, 4.0, 8.0, 14.0, 24.0):
             ok, actual_pages = _run_print(tight_h_mm, 1.0, auto_js_fit="named", pad_mm=pad_try)
             if not ok:
                 return False
@@ -943,23 +1053,83 @@ class HTMLRenderer:
 
         # Pass 2: Uniform tight height measured directly in Chromium DOM across all pages
         pages_u = 0
-        for pad_try in (2.0, 6.0, 11.0, 18.0):
+        for pad_try in (2.0, 5.0, 10.0, 18.0):
             ok_u, pages_u = _run_print(tight_h_mm, 1.0, auto_js_fit="uniform", pad_mm=pad_try)
             if ok_u and pages_u == expected_pages:
                 return True
 
         # Pass 3: Step height up or zoom if template content exceeded standard height
         if expected_pages >= 1 and pages_u > expected_pages:
-            for candidate_h in (min(std_h_mm, tight_h_mm + 12.0), min(std_h_mm, tight_h_mm + 24.0), std_h_mm):
+            base_h = max(std_h_mm, tight_h_mm)
+            for candidate_h in (base_h + 25.0, base_h + 60.0, base_h + 120.0, base_h + 200.0):
                 ok_h, pages_h = _run_print(candidate_h, 1.0, auto_js_fit="none")
                 if ok_h and pages_h <= expected_pages:
                     return True
-            for z in (0.92, 0.85, 0.78):
-                ok_z, pages_z = _run_print(std_h_mm, z, auto_js_fit="none")
+            for z in (0.92, 0.85, 0.78, 0.70):
+                ok_z, pages_z = _run_print(base_h, z, auto_js_fit="none")
                 if ok_z and pages_z <= expected_pages:
                     return True
 
         return True
+
+    @staticmethod
+    def _optimize_html_for_pdf_size(html_content: str, level: int = 1) -> str:
+        """
+        Optimizes embedded base64 images and font subsets so multi-page or image-heavy
+        HTML templates produce PDFs strictly under 100 KB while preserving visual layout.
+        """
+        import io
+        out_html = html_content
+        try:
+            from PIL import Image
+            max_w = 240 if level == 1 else (170 if level == 2 else 120)
+            jpg_q = 72 if level == 1 else (55 if level == 2 else 40)
+            cache = {}
+
+            def _repl_data_uri(match):
+                full_uri = match.group(1)
+                if full_uri in cache:
+                    return f'src="{cache[full_uri]}"'
+                b64_str = match.group(3)
+                try:
+                    raw = base64.b64decode(b64_str)
+                    with Image.open(io.BytesIO(raw)) as im:
+                        if im.width > max_w:
+                            new_h = max(1, int(im.height * (max_w / float(im.width))))
+                            im = im.resize((max_w, new_h), Image.LANCZOS)
+                        bg = Image.new("RGB", im.size, (255, 255, 255))
+                        if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+                            rgba = im.convert("RGBA")
+                            bg.paste(rgba, mask=rgba.split()[3])
+                        else:
+                            bg.paste(im.convert("RGB"))
+                        buf = io.BytesIO()
+                        bg.save(buf, format="JPEG", quality=jpg_q, optimize=True)
+                        comp_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                        new_uri = f"data:image/jpeg;base64,{comp_b64}"
+                        cache[full_uri] = new_uri
+                        return f'src="{new_uri}"'
+                except Exception:
+                    return match.group(0)
+
+            out_html = re.sub(
+                r'src=["\'](data:image/([a-zA-Z0-9+.-]+);base64,([A-Za-z0-9+/=]+))["\']',
+                _repl_data_uri,
+                out_html,
+                flags=re.I,
+            )
+        except Exception:
+            pass
+
+        if level >= 2:
+            # Unify font-family to a single standard font so Chromium embeds only 1 font subset
+            font_override = "<style>*, body, table, td, th, div, p, span { font-family: Arial, sans-serif !important; }</style>"
+            if re.search(r'</head\s*>', out_html, re.I):
+                out_html = re.sub(r'(</head\s*>)', lambda m: font_override + "\n" + m.group(1), out_html, count=1, flags=re.I)
+            else:
+                out_html = font_override + "\n" + out_html
+
+        return out_html
 
     @staticmethod
     def _register_data_images(doc: QTextDocument, html_content: str):
@@ -985,9 +1155,11 @@ class HTMLRenderer:
         tightly fits the vertical page height to the content so there is no empty bottom void,
         and guarantees multi-page or single-page templates strictly preserve their
         intended page structure (Page 1 on PDF Page 1, Page 2 on PDF Page 2, etc.).
+        Strictly keeps generated PDF files under 100 KB.
         """
         try:
             Path(pdf_path).parent.mkdir(parents=True, exist_ok=True)
+            max_pdf_bytes = 98 * 1024  # 98 KB ceiling to stay strictly under 100 KB (102,400 bytes)
 
             # 1. Parse @page rules from CSS
             css_size, is_landscape, margins_mm, has_explicit_breaks, explicit_breaks_count, custom_dims_mm = (
@@ -1005,9 +1177,17 @@ class HTMLRenderer:
             effective_margins = margins_mm if margins_mm is not None else (8.0, 8.0, 8.0, 8.0)
             top_m, right_m, bot_m, left_m = effective_margins
 
-            # 2. Check explicit multi-page sections (e.g. Page 1 of 3, Page 2 of 3, Page 3 of 3)
+            # 2. Check explicit multi-page sections (e.g. Page 1 of 4, Page 2 of 4, etc.)
             page_htmls = HTMLRenderer._split_html_into_pages(html_content)
-            expected_pages = len(page_htmls) if len(page_htmls) > 1 else ((explicit_breaks_count + 1) if has_explicit_breaks else 1)
+            page_box_count = len(re.findall(r'class=["\'][^"\']*\b(?:page|a4-page|pdf-page)\b[^"\']*["\']', html_content, re.I))
+            if page_box_count > 1:
+                expected_pages = page_box_count
+            elif len(page_htmls) > 1:
+                expected_pages = len(page_htmls)
+            elif has_explicit_breaks:
+                expected_pages = explicit_breaks_count + 1
+            else:
+                expected_pages = 1
 
             # 3. Measure natural content height of each page to eliminate empty bottom white space
             printable_w_px = max(200.0, (w_mm - left_m - right_m) * 96.0 / 25.4)
@@ -1023,7 +1203,9 @@ class HTMLRenderer:
             max_chunk_px = max(chunk_heights_px) if chunk_heights_px else 0.0
             browser_est_h_mm = (max_chunk_px * 1.02 * 25.4 / 96.0) + top_m + min(bot_m, 4.0) + 3.0
 
-            if len(page_htmls) > 1 or expected_pages == 1:
+            if expected_pages == 1:
+                tight_h_mm = max(80.0, browser_est_h_mm)
+            elif len(page_htmls) > 1:
                 if 60.0 < browser_est_h_mm < (std_h_mm - 5.0):
                     tight_h_mm = browser_est_h_mm
                 else:
@@ -1031,7 +1213,7 @@ class HTMLRenderer:
             else:
                 tight_h_mm = std_h_mm
 
-            # 4. Primary Engine: Headless Edge/Chrome for 100% browser-identical PDF output
+            # 4. Primary Engine: Headless Edge/Chrome for 100% browser-identical PDF output (< 100 KB enforced)
             if HTMLRenderer._render_pdf_via_browser(
                 html_content,
                 pdf_path,
@@ -1041,12 +1223,30 @@ class HTMLRenderer:
                 effective_margins,
                 expected_pages,
             ):
+                p_out = Path(pdf_path)
+                if p_out.exists() and p_out.stat().st_size > max_pdf_bytes:
+                    for opt_level in (1, 2, 3):
+                        opt_html = HTMLRenderer._optimize_html_for_pdf_size(html_content, level=opt_level)
+                        HTMLRenderer._render_pdf_via_browser(
+                            opt_html,
+                            pdf_path,
+                            w_mm,
+                            tight_h_mm,
+                            std_h_mm,
+                            effective_margins,
+                            expected_pages,
+                        )
+                        if p_out.exists() and p_out.stat().st_size <= max_pdf_bytes:
+                            break
                 return True
 
             # 5. Fallback Engine: PySide6 QPdfWriter with tight per-page height & CSS normalization
             first_chunk_px = chunk_heights_px[0] if chunk_heights_px else 0.0
-            first_h_mm = (first_chunk_px * 25.4 / 96.0) + top_m + bot_m + 6.0
-            init_h_mm = first_h_mm if (80.0 < first_h_mm < (std_h_mm - 12.0)) else tight_h_mm
+            first_h_mm = (first_chunk_px * 25.4 / 96.0) + top_m + bot_m + 10.0
+            if expected_pages == 1 and not has_explicit_breaks:
+                init_h_mm = max(90.0, first_h_mm)
+            else:
+                init_h_mm = first_h_mm if (80.0 < first_h_mm < (std_h_mm - 12.0)) else tight_h_mm
             selected_size = HTMLRenderer._get_qpage_size(target_size_str, (w_mm, init_h_mm))
 
             writer = QPdfWriter(pdf_path)
@@ -1114,23 +1314,23 @@ class HTMLRenderer:
             natural_h = doc.size().height()
             natural_w = doc.idealWidth()
 
-            min_pages = (explicit_breaks_count + 1) if has_explicit_breaks else 1
-
-            if page_h > 0 and natural_h > 0:
-                full_pages = int(natural_h // page_h)
-                remainder = natural_h % page_h
-                if remainder == 0:
-                    computed_pages = max(1, full_pages)
-                else:
-                    # Tolerance: minor spillover up to 220px on unsplit templates is absorbed into full_pages
-                    if remainder <= 220.0 and full_pages >= 1 and not has_explicit_breaks:
-                        computed_pages = full_pages
-                    else:
-                        computed_pages = full_pages + 1
+            if not has_explicit_breaks and expected_pages == 1:
+                target_pages = 1
             else:
-                computed_pages = 1
-
-            target_pages = max(computed_pages, min_pages)
+                min_pages = (explicit_breaks_count + 1) if has_explicit_breaks else 1
+                if page_h > 0 and natural_h > 0:
+                    full_pages = int(natural_h // page_h)
+                    remainder = natural_h % page_h
+                    if remainder == 0:
+                        computed_pages = max(1, full_pages)
+                    else:
+                        if remainder <= 220.0 and full_pages >= 1 and not has_explicit_breaks:
+                            computed_pages = full_pages
+                        else:
+                            computed_pages = full_pages + 1
+                else:
+                    computed_pages = 1
+                target_pages = max(computed_pages, min_pages)
 
             total_target_h = target_pages * page_h
             scale_y = (total_target_h / natural_h) if (natural_h > total_target_h) else 1.0
@@ -1177,12 +1377,306 @@ class HTMLRenderer:
             return False
 
     @staticmethod
+    def _compress_pil_image_bytes(pil_img, save_fmt: str, max_bytes: int = 92 * 1024, uid_text: str = "") -> bytes:
+        """
+        Compresses a PIL Image (PNG, JPEG, WEBP, GIF) so the resulting bytes are
+        strictly <= max_bytes (default 92 KB, safely below the 100 KB limit) while
+        preserving razor-sharp text and layout for both 1-page and multi-page templates.
+        """
+        import io
+        from PIL import Image, PngImagePlugin
+
+        fmt = (save_fmt or "PNG").strip().upper()
+        if fmt == "JPG":
+            fmt = "JPEG"
+
+        # Composite onto solid white RGB background so alpha channels never bloat file size
+        if pil_img.mode in ("RGBA", "LA") or (pil_img.mode == "P" and "transparency" in pil_img.info):
+            rgba = pil_img.convert("RGBA")
+            rgb_img = Image.new("RGB", pil_img.size, (255, 255, 255))
+            rgb_img.paste(rgba, mask=rgba.split()[3])
+        elif pil_img.mode != "RGB":
+            rgb_img = pil_img.convert("RGB")
+        else:
+            rgb_img = pil_img
+
+        orig_w, orig_h = rgb_img.size
+        dither_none = getattr(getattr(Image, "Dither", Image), "NONE", 0)
+        best_bytes = b""
+
+        if fmt == "PNG":
+            def _save_png_quant(img_rgb, n_colors: int) -> bytes:
+                buf = io.BytesIO()
+                q_img = img_rgb.quantize(colors=n_colors, method=Image.MEDIANCUT, dither=dither_none)
+                save_kw = {"format": "PNG", "optimize": True, "compress_level": 9}
+                if uid_text:
+                    info = PngImagePlugin.PngInfo()
+                    info.add_text("X-UID", uid_text)
+                    save_kw["pnginfo"] = info
+                q_img.save(buf, **save_kw)
+                return buf.getvalue()
+
+            # Step 1: Full resolution (1.0x) with non-dithered adaptive palette
+            for n_col in (256, 128, 64, 48, 32, 24, 16):
+                cand = _save_png_quant(rgb_img, n_col)
+                if not best_bytes or len(cand) < len(best_bytes):
+                    best_bytes = cand
+                if len(cand) <= max_bytes:
+                    return cand
+
+            # Step 2: Progressive high-quality LANCZOS scaling for tall multi-page images
+            for scale in (0.90, 0.82, 0.75, 0.68, 0.60, 0.52, 0.45):
+                sw = max(200, int(orig_w * scale))
+                sh = max(200, int(orig_h * scale))
+                scaled_img = rgb_img.resize((sw, sh), Image.LANCZOS)
+                for n_col in (64, 32, 24, 16):
+                    cand = _save_png_quant(scaled_img, n_col)
+                    if not best_bytes or len(cand) < len(best_bytes):
+                        best_bytes = cand
+                    if len(cand) <= max_bytes:
+                        return cand
+
+            return best_bytes
+
+        elif fmt in ("JPEG", "WEBP"):
+            def _save_lossy(img_rgb, q: int) -> bytes:
+                buf = io.BytesIO()
+                kw = {"format": fmt, "quality": q, "optimize": True}
+                if fmt == "JPEG" and uid_text:
+                    kw["comment"] = uid_text.encode("ascii", errors="ignore")
+                img_rgb.save(buf, **kw)
+                return buf.getvalue()
+
+            for q in (88, 78, 68, 58, 48, 40, 32):
+                cand = _save_lossy(rgb_img, q)
+                if not best_bytes or len(cand) < len(best_bytes):
+                    best_bytes = cand
+                if len(cand) <= max_bytes:
+                    return cand
+
+            for scale in (0.90, 0.80, 0.72, 0.64, 0.55, 0.46):
+                sw = max(200, int(orig_w * scale))
+                sh = max(200, int(orig_h * scale))
+                scaled_img = rgb_img.resize((sw, sh), Image.LANCZOS)
+                for q in (68, 55, 45, 35):
+                    cand = _save_lossy(scaled_img, q)
+                    if not best_bytes or len(cand) < len(best_bytes):
+                        best_bytes = cand
+                    if len(cand) <= max_bytes:
+                        return cand
+
+            return best_bytes
+
+        elif fmt == "GIF":
+            def _save_gif(img_rgb, n_colors: int) -> bytes:
+                buf = io.BytesIO()
+                q_img = img_rgb.quantize(colors=n_colors, method=Image.MEDIANCUT, dither=dither_none)
+                q_img.save(buf, format="GIF", optimize=True)
+                return buf.getvalue()
+
+            for n_col in (256, 128, 64, 32, 16):
+                cand = _save_gif(rgb_img, n_col)
+                if not best_bytes or len(cand) < len(best_bytes):
+                    best_bytes = cand
+                if len(cand) <= max_bytes:
+                    return cand
+
+            for scale in (0.90, 0.80, 0.70, 0.60, 0.50):
+                sw = max(200, int(orig_w * scale))
+                sh = max(200, int(orig_h * scale))
+                scaled_img = rgb_img.resize((sw, sh), Image.LANCZOS)
+                for n_col in (64, 32, 16):
+                    cand = _save_gif(scaled_img, n_col)
+                    if not best_bytes or len(cand) < len(best_bytes):
+                        best_bytes = cand
+                    if len(cand) <= max_bytes:
+                        return cand
+
+            return best_bytes
+
+        buf = io.BytesIO()
+        rgb_img.save(buf, format=fmt)
+        return buf.getvalue()
+
+    @staticmethod
+    def _save_qimage(qimg: QImage, image_path: str, format_str: str) -> bool:
+        """
+        Save QImage to disk supporting PNG, JPEG, JPG, GIF, WEBP while strictly
+        keeping the output image under 100 KB (<= 92 KB before recipient tagging).
+        """
+        Path(image_path).parent.mkdir(parents=True, exist_ok=True)
+        fmt_up = (format_str or "PNG").strip().upper()
+        save_fmt = "JPEG" if fmt_up == "JPG" else fmt_up
+        try:
+            import tempfile
+            from PIL import Image
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+                tmp_png_path = tf.name
+            if qimg.save(tmp_png_path, "PNG"):
+                with Image.open(tmp_png_path) as pil_img:
+                    comp_bytes = HTMLRenderer._compress_pil_image_bytes(
+                        pil_img, save_fmt=save_fmt, max_bytes=90 * 1024
+                    )
+                    if comp_bytes:
+                        Path(image_path).write_bytes(comp_bytes)
+                try:
+                    Path(tmp_png_path).unlink()
+                except Exception:
+                    pass
+                if Path(image_path).exists() and Path(image_path).stat().st_size > 0:
+                    return True
+        except Exception:
+            pass
+        return qimg.save(image_path, save_fmt)
+
+    @classmethod
+    def _render_image_via_browser(
+        cls,
+        html_content: str,
+        image_path: str,
+        format_str: str = "PNG",
+        width_val: Optional[int] = None,
+        height_val: Optional[int] = None,
+        est_height: int = 1200,
+    ) -> bool:
+        """
+        Renders HTML to an Image (PNG, JPEG, JPG, GIF) using headless Edge/Chrome
+        so the image matches the browser view 100% pixel-for-pixel, cropped tightly
+        to the exact bottom of the rendered content, and compressed under 100 KB.
+        """
+        browser_exe = cls._find_headless_browser()
+        if not browser_exe:
+            return False
+
+        import os
+        import subprocess
+        import tempfile
+        import shutil
+        import uuid
+
+        uid = uuid.uuid4().hex[:10]
+        tmp_dir = Path(tempfile.gettempdir()) / f"pm_img_{uid}"
+        prof_dir = tmp_dir / "prof"
+        tmp_html = tmp_dir / "doc.html"
+        tmp_png = tmp_dir / "shot.png"
+
+        try:
+            prof_dir.mkdir(parents=True, exist_ok=True)
+            win_w = max(600, int(width_val)) if (width_val and width_val > 0) else 820
+            page_box_count = max(
+                1,
+                len(re.findall(r'class=["\'][^"\']*\b(?:page|a4-page|pdf-page)\b[^"\']*["\']', html_content, re.I)),
+                len(cls._split_html_into_pages(html_content)),
+            )
+            init_win_h = (
+                max(1800, int(height_val) + 200)
+                if (height_val and height_val > 0)
+                else max(2400, page_box_count * 1350, int(est_height * 1.5) + 600)
+            )
+
+            inject_css = (
+                "<style id=\"pm-img-style\">\n"
+                "html, body { margin: 0 !important; min-height: 0 !important; height: auto !important; }\n"
+                "</style>"
+            )
+            sentinel_html = (
+                "<div id=\"pm-img-eof\" style=\"display:block !important; width:100% !important; "
+                "height:8px !important; margin:0 !important; padding:0 !important; "
+                "background-color:rgb(254, 1, 253) !important; clear:both !important;\"></div>"
+            )
+
+            prepared = html_content
+            if re.search(r'</head\s*>', prepared, re.I):
+                prepared = re.sub(r'(</head\s*>)', lambda m: inject_css + "\n" + m.group(1), prepared, count=1, flags=re.I)
+            else:
+                prepared = inject_css + "\n" + prepared
+
+            if re.search(r'</body\s*>', prepared, re.I):
+                prepared = re.sub(r'(</body\s*>)', lambda m: sentinel_html + "\n" + m.group(1), prepared, count=1, flags=re.I)
+            else:
+                prepared = prepared + "\n" + sentinel_html
+
+            tmp_html.write_text(prepared, encoding="utf-8")
+
+            last_qimg = None
+            for win_h in (init_win_h, max(8000, init_win_h * 2)):
+                if tmp_png.exists():
+                    try:
+                        tmp_png.unlink()
+                    except Exception:
+                        pass
+
+                cmd = [
+                    browser_exe,
+                    "--headless",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-extensions",
+                    "--disable-sync",
+                    "--hide-scrollbars",
+                    "--default-background-color=ffffffff",
+                    f"--window-size={win_w},{win_h}",
+                    f"--user-data-dir={str(prof_dir)}",
+                    f"--screenshot={str(tmp_png)}",
+                    tmp_html.resolve().as_uri(),
+                ]
+                run_kwargs = {
+                    "stdout": subprocess.DEVNULL,
+                    "stderr": subprocess.DEVNULL,
+                    "timeout": 25,
+                }
+                if os.name == "nt":
+                    run_kwargs["creationflags"] = 0x08000000
+                subprocess.run(cmd, **run_kwargs)
+
+                if not tmp_png.exists() or tmp_png.stat().st_size < 500:
+                    return False
+
+                qimg = QImage(str(tmp_png))
+                if qimg.isNull():
+                    return False
+                last_qimg = qimg
+
+                if height_val and height_val > 0:
+                    crop_h = min(qimg.height(), int(height_val))
+                    if 20 < crop_h < qimg.height():
+                        qimg = qimg.copy(0, 0, qimg.width(), crop_h)
+                    return cls._save_qimage(qimg, image_path, format_str)
+
+                crop_h = qimg.height()
+                found_sentinel = False
+                probe_xs = [qimg.width() // 2, qimg.width() // 4, (qimg.width() * 3) // 4]
+                for y in range(10, qimg.height()):
+                    c = qimg.pixelColor(probe_xs[0], y)
+                    if c.red() >= 248 and c.green() <= 10 and c.blue() >= 245:
+                        c2 = qimg.pixelColor(probe_xs[1], y)
+                        if c2.red() >= 248 and c2.green() <= 10 and c2.blue() >= 245:
+                            crop_h = y
+                            found_sentinel = True
+                            break
+
+                if found_sentinel:
+                    if 20 < crop_h < qimg.height():
+                        qimg = qimg.copy(0, 0, qimg.width(), crop_h)
+                    return cls._save_qimage(qimg, image_path, format_str)
+
+            if last_qimg is not None and not last_qimg.isNull():
+                return cls._save_qimage(last_qimg, image_path, format_str)
+            return False
+        except Exception:
+            return False
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    @staticmethod
     def render_html_to_image(html_content: str, image_path: str, format_str: str = "PNG", 
                               width_val: Optional[int] = None, height_val: Optional[int] = None) -> bool:
         """
-        Render HTML content to an Image (PNG, JPEG, GIF, WEBP) using QPainter.
-        If the HTML has multiple explicit pages, renders each page as a distinct visual
-        page sheet separated by a clean divider gap.
+        Render HTML content to an Image (PNG, JPEG, GIF, WEBP).
+        Uses headless Edge/Chrome primary engine for 100% browser-identical layout,
+        with PySide6 QPainter fallback.
         """
         try:
             # Page dimensions
@@ -1199,6 +1693,24 @@ class HTMLRenderer:
                     document_width = int(w_mm * 96 / 25.4)
                 else:
                     document_width = 800
+
+            norm_html = HTMLRenderer._normalize_html_for_qt(html_content)
+            doc = QTextDocument()
+            HTMLRenderer._register_data_images(doc, norm_html)
+            doc.setHtml(norm_html)
+            doc.setTextWidth(document_width)
+            est_h = max(600, int(doc.size().height()))
+
+            # Primary Engine: Headless Edge/Chrome for 100% browser-identical image output
+            if HTMLRenderer._render_image_via_browser(
+                html_content,
+                image_path,
+                format_str=format_str,
+                width_val=width_val if (width_val and width_val > 0) else max(800, document_width),
+                height_val=height_val,
+                est_height=est_h,
+            ):
+                return True
 
             page_htmls = HTMLRenderer._split_html_into_pages(html_content)
 
@@ -1236,19 +1748,10 @@ class HTMLRenderer:
                     y_cursor += box_h + gap
 
                 painter.end()
-                Path(image_path).parent.mkdir(parents=True, exist_ok=True)
-                return image.save(image_path, format_str.upper())
+                return HTMLRenderer._save_qimage(image, image_path, format_str)
 
-            norm_html = HTMLRenderer._normalize_html_for_qt(html_content)
-            doc = QTextDocument()
-            HTMLRenderer._register_data_images(doc, norm_html)
-            doc.setHtml(norm_html)
-            doc.setTextWidth(document_width)
-            
             # Dynamically compute ideal height from document layout or use custom height
-            document_height = height_val if height_val and height_val > 0 else int(doc.size().height())
-            if document_height <= 0:
-                document_height = 600
+            document_height = height_val if height_val and height_val > 0 else est_h
                 
             image = QImage(QSize(document_width, document_height), QImage.Format_ARGB32)
             image.fill(Qt.white)  # Clear container with solid white background
@@ -1257,11 +1760,7 @@ class HTMLRenderer:
             doc.drawContents(painter)
             painter.end()
             
-            # Ensure output directory exists
-            Path(image_path).parent.mkdir(parents=True, exist_ok=True)
-            
-            # Save using selected format
-            return image.save(image_path, format_str.upper())
+            return HTMLRenderer._save_qimage(image, image_path, format_str)
         except Exception as e:
             print(f"Error rendering HTML to image: {str(e)}")
             return False
