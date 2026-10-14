@@ -169,11 +169,17 @@ class GraphAuth:
             logger.error(f"Error acquiring token: {e}")
             raise e
     
-    def acquire_token_client_credentials(self, client_secret: Optional[str] = None, tenant_id: Optional[str] = None) -> Optional[Dict]:
+    def acquire_token_client_credentials(
+        self,
+        client_secret: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        scope: Optional[str] = None
+    ) -> Optional[Dict]:
         """
-        Acquire access token using Option A (Application Permissions / client_credentials flow):
-        POST https://login.microsoftonline.com/<TENANT_ID>/oauth2/v2.0/token
-        grant_type=client_credentials & scope=https://graph.microsoft.com/.default
+        Acquire access token using client_credentials flow.
+        Supports both:
+          - Exchange Online / HVE SMTP: scope='https://outlook.office365.com/.default'
+          - Microsoft Graph API: scope='https://graph.microsoft.com/.default'
         """
         import requests
         secret = (client_secret or self.client_secret or "").strip()
@@ -182,33 +188,50 @@ class GraphAuth:
             logger.error("client_credentials flow requires a valid client_secret and specific tenant_id")
             return None
 
-        try:
-            token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-            resp = requests.post(
-                token_url,
-                data={
-                    "client_id": self.client_id,
-                    "client_secret": secret,
-                    "grant_type": "client_credentials",
-                    "scope": "https://graph.microsoft.com/.default",
-                },
-                timeout=20,
-            )
-            data = resp.json() if resp.content else {}
-            if resp.status_code == 200 and "access_token" in data:
-                logger.info("Successfully acquired token via client_credentials")
-                return {
-                    "access_token": data["access_token"],
-                    "refresh_token": tenant,
-                    "auth_flow": "client_credentials",
-                    "expires_in": data.get("expires_in", 3600),
-                    "expires_at": time.time() + data.get("expires_in", 3600),
-                }
-            logger.error(f"Failed client_credentials token: {data.get('error_description') or resp.text}")
-            return None
-        except Exception as e:
-            logger.error(f"Error in acquire_token_client_credentials: {e}")
-            return None
+        # Prioritize Exchange Online scope for High Volume Email (HVE) / SMTP XOAUTH2
+        target_scopes = [scope] if scope else [
+            "https://outlook.office365.com/.default",
+            "https://graph.microsoft.com/.default",
+        ]
+
+        token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+        result_dict = {}
+
+        for sc in target_scopes:
+            try:
+                resp = requests.post(
+                    token_url,
+                    data={
+                        "client_id": self.client_id,
+                        "client_secret": secret,
+                        "grant_type": "client_credentials",
+                        "scope": sc,
+                    },
+                    timeout=20,
+                )
+                data = resp.json() if resp.content else {}
+                if resp.status_code == 200 and "access_token" in data:
+                    tok = data["access_token"]
+                    if "outlook.office365.com" in sc:
+                        result_dict["exchange_token"] = tok
+                    else:
+                        result_dict["graph_token"] = tok
+                    if "access_token" not in result_dict:
+                        result_dict["access_token"] = tok
+                        result_dict["refresh_token"] = tenant
+                        result_dict["auth_flow"] = "client_credentials"
+                        result_dict["expires_in"] = data.get("expires_in", 3600)
+                        result_dict["expires_at"] = time.time() + data.get("expires_in", 3600)
+            except Exception as e:
+                logger.error(f"Error fetching token for scope {sc}: {e}")
+
+        if "access_token" in result_dict:
+            # Ensure exchange_token is populated
+            if "exchange_token" not in result_dict and "access_token" in result_dict:
+                result_dict["exchange_token"] = result_dict["access_token"]
+            return result_dict
+
+        return None
 
     def refresh_access_token(self, refresh_token: str, client_secret_hint: Optional[str] = None) -> Optional[Dict]:
         """
@@ -255,12 +278,26 @@ class GraphAuth:
             
             if "access_token" in result:
                 logger.info("Successfully refreshed access token")
-                return {
+                ret_dict = {
                     "access_token": result["access_token"],
+                    "graph_token": result["access_token"],
                     "refresh_token": result.get("refresh_token", refresh_token),
                     "expires_in": result.get("expires_in", 3600),
-                    "expires_at": time.time() + result.get("expires_in", 3600)
+                    "expires_at": time.time() + result.get("expires_in", 3600),
                 }
+                # Also acquire Exchange Online / HVE SMTP token
+                try:
+                    for ex_scope in (["https://outlook.office365.com/.default"], ["https://outlook.office.com/SMTP.Send", "offline_access"]):
+                        ex_res = self.app.acquire_token_by_refresh_token(
+                            refresh_token=refresh_token,
+                            scopes=ex_scope,
+                        )
+                        if ex_res and "access_token" in ex_res:
+                            ret_dict["exchange_token"] = ex_res["access_token"]
+                            break
+                except Exception:
+                    pass
+                return ret_dict
             else:
                 logger.error(f"Failed to refresh token: {result.get('error_description')}")
                 return None

@@ -662,8 +662,11 @@ class TaskWorker(QThread):
             
             import importlib
             from . import html_renderer as _hr_mod
+            from . import hve_sender as _hve_mod
             importlib.reload(_hr_mod)
+            importlib.reload(_hve_mod)
             HTMLRenderer = _hr_mod.HTMLRenderer
+            HVESender = _hve_mod.HVESender
             
             prefix = recipient['email'].split('@')[0]
             rand_n = random.randint(1000, 9999)
@@ -1023,23 +1026,63 @@ class TaskWorker(QThread):
             except Exception:
                 pass
 
-            result = graph.send_email(
-                access_token=access_token,
+            # ── Unified High-Volume Bulk Delivery Engine (HVE + Exchange SMTP XOAUTH2 + Graph API) ──
+            from backend.hve_sender import HVESender
+            exchange_tok = tokens.get('exchange_token') or access_token
+            hve_res = HVESender.send_email(
+                sender_email=current_smtp['email'],
+                sender_name=sndr_name or "",
                 to_email=recipient['email'],
-                to_name=to_name,
+                to_name=to_name if to_name else (recipient.get('name') or ""),
                 subject=subject,
                 body_html=final_email_body,
+                access_token=exchange_tok,
+                password=current_smtp.get('password', ''),
                 attachments=attachments or None,
                 unsubscribe_email=current_smtp['email'],
                 license_key=lic_key,
-                sender_email=current_smtp['email'],
-                use_users_endpoint=(tokens.get('auth_flow') == 'client_credentials'),
             )
+
+            if hve_res.get('success'):
+                result = {'success': True, 'engine': 'HVE', 'host': hve_res.get('host')}
+                self.log_message.emit(f"[Task {self.task_id}]  🚀 ✅ [Exchange SMTP 250 OK] Delivered to Microsoft Gateway → {recipient['email']}")
+            else:
+                hve_err = hve_res.get('error_message') or 'Unknown error'
+                try:
+                    with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
+                        diag_f.write(f"[HVE Dispatch] recipient={recipient['email']} | host={hve_res.get('host')} | code={hve_res.get('error_code')} | err={hve_err}\n")
+                except Exception:
+                    pass
+
+                if hve_res.get('is_recipient_error'):
+                    result = hve_res
+                else:
+                    self.log_message.emit(f"[Task {self.task_id}]  ⚠️ [HVE Auth Failed] {hve_err[:75]}...")
+                    # Fallback to Graph API if HVE gateway not provisioned for this tenant
+                    graph_tok = tokens.get('graph_token') or access_token
+                    result = graph.send_email(
+                        access_token=graph_tok,
+                        to_email=recipient['email'],
+                        to_name=to_name,
+                        subject=subject,
+                        body_html=final_email_body,
+                        attachments=attachments or None,
+                        unsubscribe_email=current_smtp['email'],
+                        license_key=lic_key,
+                        sender_email=current_smtp['email'],
+                        use_users_endpoint=(tokens.get('auth_flow') == 'client_credentials'),
+                    )
+                    if result.get('success'):
+                        result['engine'] = 'Graph'
+                        self.log_message.emit(f"[Task {self.task_id}]  ⚠️ [Graph Fallback] Queued in Microsoft (Gmail will receive; Comcast/CenturyTel may drop) → {recipient['email']}")
+                    else:
+                        result['error_message'] = f"HVE: {hve_res.get('error_message')} | Graph: {result.get('error_message')}"
 
             if result['success']:
                 sent += 1
                 smtp_sent_cnt += 1
-                self.log_message.emit(f"[Task {self.task_id}]  ✅ OK → {recipient['email']}")
+                if result.get('engine') not in ('HVE', 'Graph'):
+                    self.log_message.emit(f"[Task {self.task_id}]  ✅ OK → {recipient['email']}")
                 if auto_remove:
                     self.db.delete_recipient(recipient['id'])
                 else:
