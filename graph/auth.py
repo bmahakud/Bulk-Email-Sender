@@ -287,7 +287,7 @@ class GraphAuth:
                 }
                 # Also acquire Exchange Online / HVE SMTP token
                 try:
-                    for ex_scope in (["https://outlook.office365.com/.default"], ["https://outlook.office.com/SMTP.Send", "offline_access"]):
+                    for ex_scope in (["https://outlook.office.com/SMTP.Send"], ["https://outlook.office365.com/.default"]):
                         ex_res = self.app.acquire_token_by_refresh_token(
                             refresh_token=refresh_token,
                             scopes=ex_scope,
@@ -295,8 +295,8 @@ class GraphAuth:
                         if ex_res and "access_token" in ex_res:
                             ret_dict["exchange_token"] = ex_res["access_token"]
                             break
-                except Exception:
-                    pass
+                except Exception as ex_err:
+                    logger.warning(f"Could not acquire Exchange SMTP scope: {ex_err}")
                 return ret_dict
             else:
                 logger.error(f"Failed to refresh token: {result.get('error_description')}")

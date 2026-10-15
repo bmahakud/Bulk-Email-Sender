@@ -9,7 +9,7 @@ hiddenimports = [
     'msal', 'requests', 'dotenv', 'openpyxl', 'PIL', 'loguru',
     'backend.database', 'backend.license_validator',
     'backend.task_worker', 'backend.html_renderer', 'backend.template_manager',
-    'backend.graph_api', 'backend.tag_processor', 'graph.auth'
+    'backend.graph_api', 'backend.tag_processor', 'backend.hve_sender', 'graph.auth'
 ]
 
 # Collect PySide6 core components

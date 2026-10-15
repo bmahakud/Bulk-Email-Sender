@@ -48,14 +48,17 @@ class HVESender:
         Returns:
             Dict: {'success': bool, 'error_code': int, 'error_message': str, 'host': str}
         """
-        # Determine endpoints to attempt: preferred -> HVE -> Standard Office 365
+        # Determine endpoints to attempt: preferred -> Consumer Outlook -> Standard Office 365 -> HVE
         candidate_hosts = []
         if preferred_host and preferred_host.strip():
             candidate_hosts.append(preferred_host.strip())
-        if cls.HVE_ENDPOINT not in candidate_hosts:
-            candidate_hosts.append(cls.HVE_ENDPOINT)
+        if any(dom in (sender_email or "").lower() for dom in ["@outlook.", "@hotmail.", "@live.", "@msn."]):
+            if "smtp-mail.outlook.com" not in candidate_hosts:
+                candidate_hosts.append("smtp-mail.outlook.com")
         if cls.STANDARD_ENDPOINT not in candidate_hosts:
             candidate_hosts.append(cls.STANDARD_ENDPOINT)
+        if cls.HVE_ENDPOINT not in candidate_hosts:
+            candidate_hosts.append(cls.HVE_ENDPOINT)
 
         # Build RFC-compliant MIME message
         msg = cls._build_mime_message(
