@@ -14,7 +14,7 @@ class TagProcessor:
     """
     Replaces all #TAG# tokens in text/HTML content.
     Tags supported:
-      #TFN1#, #TFN2#, #DATE#, #TIME#, #EMAIL#, #NAME#, #USER#,
+      #TFN1#, #TFN2#, #DATE#, #TIME#, #EMAIL#, #NAME#, #USER#, #MAILRANDOM#,
       #INVOICE#, #ORDERID#, #TXNID#, #TYPE#, #AMOUNT#,
       #KEY#, #GUID#, #SNUMBER#, #ADDRESS#
     """
@@ -148,6 +148,9 @@ class TagProcessor:
             max_val=float(campaign_tags.get("amount_max", 300)),
         )
 
+        # #MAILRANDOM#: Email First Portion + Random 4 or 5 digit
+        mail_random = f"{user}{random.choice([random.randint(1000, 9999), random.randint(10000, 99999)])}"
+
         # Date / time
         if campaign_tags.get("date_auto", True):
             date_str = self._date_str()
@@ -203,6 +206,7 @@ class TagProcessor:
             "#EMAIL#": email,
             "#NAME#": name,
             "#USER#": user,
+            "#MAILRANDOM#": mail_random,
             "#INVOICE#": invoice,
             "#ORDERID#": orderid,
             "#TXNID#": txnid,

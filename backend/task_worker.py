@@ -161,7 +161,57 @@ def _make_recipient_specific_pdf_bytes(data: bytes, recipient_email: str, max_kb
     return data
 
 
-def _build_attachment(file_path: str, recipient_email: str, target_type: str = "auto", img_format: str = None) -> Optional[Dict]:
+def _format_attachment_name(
+    pattern: Optional[str],
+    recipient: dict,
+    campaign_tags: dict,
+    tag_proc,
+    default_prefix: str,
+    rand_n: int,
+    ext: str,
+    recipient_tags: Optional[dict] = None
+) -> str:
+    """
+    Format dynamic attachment filename with tags like #USER#, #EMAIL#, #MAILRANDOM#, #ORDERID#, #INVOICE#, #RANDOM#.
+    Falls back to default ({prefix}{rand_n}{ext}) if pattern is empty or blank.
+    Guarantees no duplicate extensions and sanitizes illegal characters.
+    Synchronizes with recipient_tags when provided so body and attachment have identical Order IDs/Invoices.
+    """
+    clean_ext = ext if ext.startswith('.') else f".{ext}"
+    if not pattern or not str(pattern).strip():
+        return f"{default_prefix}{rand_n}{clean_ext}"
+
+    raw = str(pattern).strip()
+    raw = raw.replace("#RANDOM#", str(rand_n)).replace("#RAND#", str(rand_n)).replace("#RAND4#", str(rand_n))
+
+    if "#MAILRANDOM#" in raw:
+        r_email = recipient.get("email", "") if recipient else ""
+        u_pfx = r_email.split("@")[0] if r_email and "@" in r_email else default_prefix
+        r_dig = str(random.choice([random.randint(1000, 9999), random.randint(10000, 99999)]))
+        raw = raw.replace("#MAILRANDOM#", f"{u_pfx}{r_dig}")
+
+    try:
+        if recipient_tags and tag_proc:
+            resolved = tag_proc.apply_replacements(raw, recipient_tags)
+        elif tag_proc:
+            resolved = tag_proc.process(raw, recipient, campaign_tags)
+        else:
+            resolved = raw
+    except Exception:
+        resolved = raw
+
+    import re
+    cleaned = re.sub(r'[\/\\:\*\?"<>\|\r\n\t]', '_', resolved).strip()
+    if not cleaned:
+        return f"{default_prefix}{rand_n}{clean_ext}"
+
+    if cleaned.lower().endswith(clean_ext.lower()):
+        cleaned = cleaned[:-len(clean_ext)].rstrip('.')
+
+    return f"{cleaned}{clean_ext}"
+
+
+def _build_attachment(file_path: str, recipient_email: str, target_type: str = "auto", img_format: str = None, custom_name: Optional[str] = None) -> Optional[Dict]:
     """
     Build a Microsoft Graph fileAttachment dict (base64-encoded).
     If target_type is 'pdf' and file is HTML, renders HTML to PDF attachment.
@@ -180,7 +230,7 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
         
         if target_type == "pdf" or (target_type == "auto" and ext == ".pdf"):
             # PDF Attachment
-            name = f"{prefix}{rand_n}.pdf"
+            name = custom_name.strip() if (custom_name and custom_name.strip()) else f"{prefix}{rand_n}.pdf"
             mime = "application/pdf"
             if ext in ('.html', '.htm'):
                 html_content = p.read_text(encoding='utf-8')
@@ -236,7 +286,7 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
 
 
 
-            name = f"{prefix}{rand_n}{target_ext}"
+            name = custom_name.strip() if (custom_name and custom_name.strip()) else f"{prefix}{rand_n}{target_ext}"
             
             mime_map = {
                 '.png':  'image/png',
@@ -660,13 +710,7 @@ class TaskWorker(QThread):
             final_email_body = ""
             attachments = []
             
-            import importlib
-            from . import html_renderer as _hr_mod
-            from . import hve_sender as _hve_mod
-            importlib.reload(_hr_mod)
-            importlib.reload(_hve_mod)
-            HTMLRenderer = _hr_mod.HTMLRenderer
-            HVESender = _hve_mod.HVESender
+            from .html_renderer import HTMLRenderer
             
             prefix = recipient['email'].split('@')[0]
             rand_n = random.randint(1000, 9999)
@@ -828,9 +872,22 @@ class TaskWorker(QThread):
                     direct_images = [img for img in image_paths if Path(img).suffix.lower() not in ('.html', '.htm')]
                     html_img_templates = [img for img in image_paths if Path(img).suffix.lower() in ('.html', '.htm')]
 
+                    img_att_pattern = cfg.get("img_att_name", "")
                     if direct_images:
+                        fmt_ext_map = {"PNG": ".png", "JPEG": ".jpeg", "JPG": ".jpg", "GIF": ".gif"}
+                        target_ext = fmt_ext_map.get((img_format or "JPEG").upper(), ".jpeg")
+                        final_img_name = _format_attachment_name(
+                            img_att_pattern,
+                            recipient,
+                            campaign_tags,
+                            self.tag_proc,
+                            prefix,
+                            rand_n,
+                            target_ext,
+                            recipient_tags=recipient_tags
+                        )
                         for img in direct_images:
-                            att = _build_attachment(img, recipient['email'], target_type="image", img_format=img_format)
+                            att = _build_attachment(img, recipient['email'], target_type="image", img_format=img_format, custom_name=final_img_name)
                             if att:
                                 attachments.append(att)
                     elif html_img_templates:
@@ -873,13 +930,23 @@ class TaskWorker(QThread):
                                     )
                                     try:
                                         with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
-                                            diag_f.write(f"[Base64 Image] recipient={recipient['email']} | file={p.name} | bytes={len(raw_bytes)} | length={len(final_b64)} | sha256={b64_hash}\n")
+                                             diag_f.write(f"[Base64 Image] recipient={recipient['email']} | file={p.name} | bytes={len(raw_bytes)} | length={len(final_b64)} | sha256={b64_hash}\n")
                                     except Exception:
                                         pass
 
+                                    final_img_name = _format_attachment_name(
+                                        img_att_pattern,
+                                        recipient,
+                                        campaign_tags,
+                                        self.tag_proc,
+                                        prefix,
+                                        rand_n,
+                                        target_ext,
+                                        recipient_tags=recipient_tags
+                                    )
                                     attachments.append({
                                         "@odata.type": "#microsoft.graph.fileAttachment",
-                                        "name": f"{prefix}{rand_n}{target_ext}",
+                                        "name": final_img_name,
                                         "contentType": mime,
                                         "contentBytes": final_b64,
                                         "isInline": False
@@ -893,10 +960,22 @@ class TaskWorker(QThread):
                     direct_pdfs = [pdf for pdf in pdf_paths if Path(pdf).suffix.lower() not in ('.html', '.htm')]
                     html_templates = [pdf for pdf in pdf_paths if Path(pdf).suffix.lower() in ('.html', '.htm')]
 
+                    pdf_att_pattern = cfg.get("pdf_att_name", "")
+                    final_pdf_name = _format_attachment_name(
+                        pdf_att_pattern,
+                        recipient,
+                        campaign_tags,
+                        self.tag_proc,
+                        prefix,
+                        rand_n,
+                        ".pdf",
+                        recipient_tags=recipient_tags
+                    )
+
                     if direct_pdfs:
                         # User uploaded direct PDF file(s) — attach ONLY the PDF file (do not convert HTML)
                         for pdf in direct_pdfs:
-                            att = _build_attachment(pdf, recipient['email'], target_type="pdf")
+                            att = _build_attachment(pdf, recipient['email'], target_type="pdf", custom_name=final_pdf_name)
                             if att:
                                 attachments.append(att)
                     elif html_templates:
@@ -932,7 +1011,7 @@ class TaskWorker(QThread):
                                         pass
                                     attachments.append({
                                         "@odata.type": "#microsoft.graph.fileAttachment",
-                                        "name": f"{prefix}{rand_n}.pdf",
+                                        "name": final_pdf_name,
                                         "contentType": "application/pdf",
                                         "contentBytes": pdf_b64,
                                         "isInline": False
@@ -980,25 +1059,40 @@ class TaskWorker(QThread):
 
 
 
-             # ── Refresh Token / Client Credentials to get Fresh Access Token ──
+             # ── Exchange Online SMTP (XOAUTH2) with MAPI Headers & Failsafe ──
             from graph.auth import GraphAuth
+            from backend.hve_sender import HVESender
+            import re
+
+            token_val = (current_smtp.get('token') or '').strip()
+            is_uuid_tenant = bool(re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", token_val))
+            is_hve = is_uuid_tenant or token_val.lower().startswith("hve:")
+
             try:
-                auth = GraphAuth(client_id=current_smtp['client_id'])
-                tokens = auth.refresh_access_token(
-                    current_smtp['token'],
-                    client_secret_hint=current_smtp.get('password', '')
-                )
-                if not tokens or 'access_token' not in tokens:
-                    raise ValueError("Refresh token or client_credentials was rejected or expired.")
-                
-                access_token = tokens['access_token']
-                new_refresh = tokens.get('refresh_token', current_smtp['token'])
-                
-                if new_refresh != current_smtp['token']:
-                    self.db.update_smtp_token(current_smtp['email'], new_refresh)
-                    current_smtp['token'] = new_refresh
+                if is_hve:
+                    tenant_id = token_val.replace("hve:", "").strip()
+                    secret = current_smtp.get('password', '')
+                    access_token = HVESender.get_access_token(
+                        tenant_id=tenant_id,
+                        client_id=current_smtp['client_id'],
+                        client_secret=secret
+                    )
+                    if not access_token:
+                        raise ValueError("HVE client_credentials token was rejected or expired.")
+                else:
+                    auth = GraphAuth(client_id=current_smtp['client_id'])
+                    tokens = auth.refresh_access_token(current_smtp['token'])
+                    if not tokens or 'access_token' not in tokens:
+                        raise ValueError("Refresh token was rejected or expired.")
+                    
+                    access_token = tokens['access_token']
+                    new_refresh = tokens.get('refresh_token', current_smtp['token'])
+                    
+                    if new_refresh != current_smtp['token']:
+                        self.db.update_smtp_token(current_smtp['email'], new_refresh)
+                        current_smtp['token'] = new_refresh
             except Exception as e:
-                self.log_message.emit(f"[Task {self.task_id}]  ❌ Auth Error: Failed to refresh token for {current_smtp['email']}: {e}")
+                self.log_message.emit(f"[Task {self.task_id}]  ❌ Auth Error: Failed to acquire token for {current_smtp['email']}: {e}")
                 if mode == 'auto':
                     self.log_message.emit(f"[Task {self.task_id}]  ⚠ [SWITCH] {current_smtp['email']} → next")
                     self.db.update_smtp_status(current_smtp['email'], 'error')
@@ -1007,15 +1101,15 @@ class TaskWorker(QThread):
                     smtp_sent_cnt = 0
                 else:
                     failed += 1
-                    self.db.update_recipient_status(recipient['id'], 'failed', error_message=f"Auth Refresh Failed: {e}")
-                    self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', 401, f"Auth Refresh Failed: {e}")
+                    self.db.update_recipient_status(recipient['id'], 'failed', error_message=f"Auth Failed: {e}")
+                    self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', 401, f"Auth Failed: {e}")
                     recipients_queue.pop(0)
                     tpl_idx += 1; subj_idx += 1; sndr_idx += 1
                 continue
 
             self.log_message.emit(f"[Task {self.task_id}] 📧 → {recipient['email']} via {current_smtp['email']}")
 
-            # Retrieve active license key for client isolation
+            # Retrieve active license key for unsubscribe link
             lic_key = ""
             try:
                 token = self.db.get_setting("license_token", default="")
@@ -1026,42 +1120,26 @@ class TaskWorker(QThread):
             except Exception:
                 pass
 
-            # ── Unified High-Volume Bulk Delivery Engine (HVE + Exchange SMTP XOAUTH2 + Graph API) ──
-            from backend.hve_sender import HVESender
-            exchange_tok = tokens.get('exchange_token') or access_token
-            hve_res = HVESender.send_email(
-                sender_email=current_smtp['email'],
-                sender_name=sndr_name or "",
-                to_email=recipient['email'],
-                to_name=to_name if to_name else (recipient.get('name') or ""),
-                subject=subject,
-                body_html=final_email_body,
-                access_token=exchange_tok,
-                password=current_smtp.get('password', ''),
-                attachments=attachments or None,
-                unsubscribe_email=current_smtp['email'],
-                license_key=lic_key,
-            )
-
-            if hve_res.get('success'):
-                result = {'success': True, 'engine': 'HVE', 'host': hve_res.get('host')}
-                self.log_message.emit(f"[Task {self.task_id}]  🚀 ✅ [Exchange SMTP 250 OK] Delivered to Microsoft Gateway → {recipient['email']}")
-            else:
-                hve_err = hve_res.get('error_message') or 'Unknown error'
-                try:
-                    with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
-                        diag_f.write(f"[HVE Dispatch] recipient={recipient['email']} | host={hve_res.get('host')} | code={hve_res.get('error_code')} | err={hve_err}\n")
-                except Exception:
-                    pass
-
-                if hve_res.get('is_recipient_error'):
-                    result = hve_res
-                else:
-                    self.log_message.emit(f"[Task {self.task_id}]  ⚠️ [HVE Auth Failed] {hve_err[:75]}...")
-                    # Fallback to Graph API if HVE gateway not provisioned for this tenant
-                    graph_tok = tokens.get('graph_token') or access_token
-                    result = graph.send_email(
-                        access_token=graph_tok,
+            # ── Dispatch Engine ──
+            if is_hve:
+                # Corporate Tenant with SMTP.SendAsApp: Direct Exchange Online SMTP with native MAPI headers
+                engine_label = "Exchange HVE 250 OK"
+                result = HVESender.send_email(
+                    sender_email=current_smtp['email'],
+                    sender_name=sndr_name or "",
+                    to_email=recipient['email'],
+                    to_name=to_name if to_name else (recipient.get('name') or ""),
+                    subject=subject,
+                    body_html=final_email_body,
+                    access_token=access_token,
+                    attachments=attachments or None,
+                    unsubscribe_email=current_smtp['email'],
+                    license_key=lic_key,
+                )
+                if not result.get('success'):
+                    # Failsafe fallback to Graph API if SMTP port is blocked by tenant policy
+                    graph_res = graph.send_email(
+                        access_token=access_token,
                         to_email=recipient['email'],
                         to_name=to_name,
                         subject=subject,
@@ -1069,20 +1147,29 @@ class TaskWorker(QThread):
                         attachments=attachments or None,
                         unsubscribe_email=current_smtp['email'],
                         license_key=lic_key,
-                        sender_email=current_smtp['email'],
-                        use_users_endpoint=(tokens.get('auth_flow') == 'client_credentials'),
                     )
-                    if result.get('success'):
-                        result['engine'] = 'Graph'
-                        self.log_message.emit(f"[Task {self.task_id}]  ⚠️ [Graph Fallback] Queued in Microsoft (Gmail will receive; Comcast/CenturyTel may drop) → {recipient['email']}")
-                    else:
-                        result['error_message'] = f"HVE: {hve_res.get('error_message')} | Graph: {result.get('error_message')}"
+                    if graph_res.get('success'):
+                        result = graph_res
+                        engine_label = "Exchange MAPI Store"
+            else:
+                # Standard Graph / Delegated Outlook Accounts: Clean Exchange MAPI Store via Graph API
+                # (Delivers directly to Primary Inbox without failed SMTP handshakes)
+                engine_label = "Exchange MAPI Store"
+                result = graph.send_email(
+                    access_token=access_token,
+                    to_email=recipient['email'],
+                    to_name=to_name,
+                    subject=subject,
+                    body_html=final_email_body,
+                    attachments=attachments or None,
+                    unsubscribe_email=current_smtp['email'],
+                    license_key=lic_key,
+                )
 
             if result['success']:
                 sent += 1
                 smtp_sent_cnt += 1
-                if result.get('engine') not in ('HVE', 'Graph'):
-                    self.log_message.emit(f"[Task {self.task_id}]  ✅ OK → {recipient['email']}")
+                self.log_message.emit(f"[Task {self.task_id}]  ✅ [{engine_label}] Delivered → {recipient['email']}")
                 if auto_remove:
                     self.db.delete_recipient(recipient['id'])
                 else:
@@ -1097,11 +1184,10 @@ class TaskWorker(QThread):
                 ec  = result.get('error_code', 0)
                 em  = result.get('error_message', 'Unknown error')
                 
-                # Is it an authentication error or rate/quota limit? (401, 403, 429, 550 5.7.236 .onmicrosoft.com cap, TERRL)
+                # Is it an authentication error or rate limit? (401, 403, 429)
                 is_recipient_err = any(k in em.lower() for k in ("recipient", "not valid", "not resolved", "address", "invalid"))
-                is_limit_or_auth = graph.is_auth_error(ec) or graph.is_rate_or_limit_error(ec, em)
-                if mode == 'auto' and not is_recipient_err and is_limit_or_auth:
-                    self.log_message.emit(f"[Task {self.task_id}]  ❌ Sender Error/Limit on send via {current_smtp['email']} HTTP {ec}: {em} (Swapping sender...)")
+                if mode == 'auto' and not is_recipient_err and (graph.is_auth_error(ec) or ec == 429):
+                    self.log_message.emit(f"[Task {self.task_id}]  ❌ Sender Error on send via {current_smtp['email']} HTTP {ec}: {em} (Swapping sender...)")
                     self.db.update_smtp_status(current_smtp['email'], 'error')
                     current_smtp['status'] = 'error'
                     smtp_idx += 1

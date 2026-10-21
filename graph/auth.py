@@ -169,92 +169,8 @@ class GraphAuth:
             logger.error(f"Error acquiring token: {e}")
             raise e
     
-    def acquire_token_client_credentials(
-        self,
-        client_secret: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-        scope: Optional[str] = None
-    ) -> Optional[Dict]:
-        """
-        Acquire access token using client_credentials flow.
-        Supports both:
-          - Exchange Online / HVE SMTP: scope='https://outlook.office365.com/.default'
-          - Microsoft Graph API: scope='https://graph.microsoft.com/.default'
-        """
-        import requests
-        secret = (client_secret or self.client_secret or "").strip()
-        tenant = (tenant_id or self.tenant_id or "").strip()
-        if not secret or not tenant or tenant.lower() == "common":
-            logger.error("client_credentials flow requires a valid client_secret and specific tenant_id")
-            return None
-
-        # Prioritize Exchange Online scope for High Volume Email (HVE) / SMTP XOAUTH2
-        target_scopes = [scope] if scope else [
-            "https://outlook.office365.com/.default",
-            "https://graph.microsoft.com/.default",
-        ]
-
-        token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-        result_dict = {}
-
-        for sc in target_scopes:
-            try:
-                resp = requests.post(
-                    token_url,
-                    data={
-                        "client_id": self.client_id,
-                        "client_secret": secret,
-                        "grant_type": "client_credentials",
-                        "scope": sc,
-                    },
-                    timeout=20,
-                )
-                data = resp.json() if resp.content else {}
-                if resp.status_code == 200 and "access_token" in data:
-                    tok = data["access_token"]
-                    if "outlook.office365.com" in sc:
-                        result_dict["exchange_token"] = tok
-                    else:
-                        result_dict["graph_token"] = tok
-                    if "access_token" not in result_dict:
-                        result_dict["access_token"] = tok
-                        result_dict["refresh_token"] = tenant
-                        result_dict["auth_flow"] = "client_credentials"
-                        result_dict["expires_in"] = data.get("expires_in", 3600)
-                        result_dict["expires_at"] = time.time() + data.get("expires_in", 3600)
-            except Exception as e:
-                logger.error(f"Error fetching token for scope {sc}: {e}")
-
-        if "access_token" in result_dict:
-            # Ensure exchange_token is populated
-            if "exchange_token" not in result_dict and "access_token" in result_dict:
-                result_dict["exchange_token"] = result_dict["access_token"]
-            return result_dict
-
-        return None
-
-    def refresh_access_token(self, refresh_token: str, client_secret_hint: Optional[str] = None) -> Optional[Dict]:
-        """
-        Acquire fresh access token using either:
-          1. Delegated OAuth2 Refresh Token (email|password|refresh_token|client_id)
-          2. Application client_credentials (email|client_secret|tenant_id|client_id)
-        """
-        import re
-        token_val = (refresh_token or "").strip()
-
-        # Detect if token_val is a Tenant ID (UUID or domain) for Option A client_credentials flow
-        is_uuid_tenant = bool(re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", token_val))
-        is_domain_tenant = (
-            "." in token_val and len(token_val) < 80 and not token_val.startswith(("M.", "0.", "1."))
-        ) or token_val.lower() == "client_credentials"
-
-        if is_uuid_tenant or is_domain_tenant:
-            tenant = self.tenant_id if token_val.lower() == "client_credentials" else token_val
-            secret = client_secret_hint or self.client_secret
-            cc_res = self.acquire_token_client_credentials(client_secret=secret, tenant_id=tenant)
-            if cc_res:
-                return cc_res
-
+    def refresh_access_token(self, refresh_token: str) -> Optional[Dict]:
+        """Refresh access token using refresh token"""
         try:
             # Try initial refresh with configured application
             result = self.app.acquire_token_by_refresh_token(
@@ -278,26 +194,12 @@ class GraphAuth:
             
             if "access_token" in result:
                 logger.info("Successfully refreshed access token")
-                ret_dict = {
+                return {
                     "access_token": result["access_token"],
-                    "graph_token": result["access_token"],
                     "refresh_token": result.get("refresh_token", refresh_token),
                     "expires_in": result.get("expires_in", 3600),
-                    "expires_at": time.time() + result.get("expires_in", 3600),
+                    "expires_at": time.time() + result.get("expires_in", 3600)
                 }
-                # Also acquire Exchange Online / HVE SMTP token
-                try:
-                    for ex_scope in (["https://outlook.office.com/SMTP.Send"], ["https://outlook.office365.com/.default"]):
-                        ex_res = self.app.acquire_token_by_refresh_token(
-                            refresh_token=refresh_token,
-                            scopes=ex_scope,
-                        )
-                        if ex_res and "access_token" in ex_res:
-                            ret_dict["exchange_token"] = ex_res["access_token"]
-                            break
-                except Exception as ex_err:
-                    logger.warning(f"Could not acquire Exchange SMTP scope: {ex_err}")
-                return ret_dict
             else:
                 logger.error(f"Failed to refresh token: {result.get('error_description')}")
                 return None

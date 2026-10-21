@@ -945,6 +945,17 @@ class TaskPanel(QWidget):
         self.img_att_list = QListWidget(); self.img_att_list.setFixedHeight(70)
         self.img_att_list.itemDoubleClicked.connect(lambda item: self.img_att_list.takeItem(self.img_att_list.row(item)))
         img_lay.addWidget(self.img_att_list)
+
+        # Image custom filename pattern
+        img_fn_row = QHBoxLayout()
+        img_fn_lbl = QLabel("Image Filename Pattern:")
+        img_fn_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
+        self.inp_img_att_name = QLineEdit()
+        self.inp_img_att_name.setPlaceholderText("Leave empty for default (#USER##RANDOM#), or enter custom e.g. Receipt_#ORDERID#")
+        img_fn_row.addWidget(img_fn_lbl)
+        img_fn_row.addWidget(self.inp_img_att_name)
+        img_lay.addLayout(img_fn_row)
+
         al.addWidget(self.wdg_img_att)
 
         # PDF Container
@@ -971,11 +982,22 @@ class TaskPanel(QWidget):
         self.pdf_att_list = QListWidget(); self.pdf_att_list.setFixedHeight(70)
         self.pdf_att_list.itemDoubleClicked.connect(lambda item: self.pdf_att_list.takeItem(self.pdf_att_list.row(item)))
         pdf_lay.addWidget(self.pdf_att_list)
+
+        # PDF custom filename pattern
+        pdf_fn_row = QHBoxLayout()
+        pdf_fn_lbl = QLabel("PDF Filename Pattern:")
+        pdf_fn_lbl.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
+        self.inp_pdf_att_name = QLineEdit()
+        self.inp_pdf_att_name.setPlaceholderText("Leave empty for default (#USER##RANDOM#), or enter custom e.g. Invoice_#INVOICE#")
+        pdf_fn_row.addWidget(pdf_fn_lbl)
+        pdf_fn_row.addWidget(self.inp_pdf_att_name)
+        pdf_lay.addLayout(pdf_fn_row)
+
         al.addWidget(self.wdg_pdf_att)
 
         self.lbl_note = QLabel(
-            "📌 Name example:  groupleeman4829.png  /  groupleeman4829.pdf\n"
-            "   (email prefix + 4 random digits — @domain.com is NOT included)")
+            "💡 Filename Pattern: Leave empty for default (email prefix + 4 random digits).\n"
+            "   Or use dynamic tags: #MAILRANDOM#, #USER#, #EMAIL#, #NAME#, #ORDERID#, #INVOICE#, #TXNID#, #DATE#, #RANDOM#")
         self.lbl_note.setStyleSheet("color:#7880a0; font-size:11px; margin-top:4px;")
         al.addWidget(self.lbl_note)
         self.g_att.setLayout(al); lay.addWidget(self.g_att)
@@ -1037,7 +1059,7 @@ class TaskPanel(QWidget):
         g4 = QGroupBox("Available Tags  (quick reference)")
         tl = QVBoxLayout()
         tags_txt = QLabel(
-            "#NAME#  #EMAIL#  #USER#  #TFN#  #TFN1#  #TFN2#  #DATE#  #TIME#\n"
+            "#NAME#  #EMAIL#  #USER#  #MAILRANDOM#  #TFN#  #TFN1#  #TFN2#  #DATE#  #TIME#\n"
             "#AMOUNT#  #INVOICE#  #ORDERID#  #ORDER#  #TXNID#  #TYPE#\n"
             "#LETTERS#  #LICENSE#  #REGARDS#  #ADDRESS#\n"
             "#KEY#  #GUID#  #NUMBER#  #RANDOM#  #SERIAL#  #SNUMBER#"
@@ -2196,6 +2218,8 @@ class TaskPanel(QWidget):
         s(pfx + "img_paths", json.dumps(img_paths))
         pdf_paths = [self.pdf_att_list.item(i).text() for i in range(self.pdf_att_list.count())]
         s(pfx + "pdf_paths", json.dumps(pdf_paths))
+        s(pfx + "img_att_name", self.inp_img_att_name.text().strip())
+        s(pfx + "pdf_att_name", self.inp_pdf_att_name.text().strip())
 
         # Delays
         s(pfx + "delay", str(self.spn_delay.value()))
@@ -2329,6 +2353,10 @@ class TaskPanel(QWidget):
                         self.pdf_att_list.addItem(p)
             except Exception:
                 pass
+        v = g(pfx + "img_att_name")
+        self.inp_img_att_name.setText(v if v else "")
+        v = g(pfx + "pdf_att_name")
+        self.inp_pdf_att_name.setText(v if v else "")
 
         # Delays
         v = g(pfx + "delay")
@@ -2560,6 +2588,8 @@ class TaskPanel(QWidget):
             "body_plain_list":    body_plain_list,
             "rotation_mode":      rotation_mode,
             "img_format":         self.cmb_img_format.currentText(),
+            "img_att_name":       self.inp_img_att_name.text().strip(),
+            "pdf_att_name":       self.inp_pdf_att_name.text().strip(),
         }
 
         self.worker = TaskWorker(self.task_id, config, self.db)

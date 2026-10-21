@@ -1,10 +1,13 @@
 """
 High Volume Email (HVE) & Exchange Online SMTP OAuth (XOAUTH2) Sender.
-Compliant with Microsoft 365 2026 requirements:
-- Endpoints: smtp.hve.mx.microsoft (HVE Bulk) / smtp.office365.com
-- Auth: AUTH XOAUTH2 using OAuth 2.0 bearer token (scope: https://outlook.office365.com/.default)
-- Synchronous SMTP delivery confirmation (detects MX rejections at gateway)
+Compliant with Microsoft 365 requirements:
+  - Endpoints: smtp.office365.com:587 / smtp.hve.mx.microsoft:587
+  - Auth: AUTH XOAUTH2 using OAuth 2.0 bearer token
+    * App-Only scope: https://outlook.office365.com/.default (SMTP.SendAsApp)
+    * Delegated scope: https://outlook.office.com/SMTP.Send (SMTP.Send)
+  - Native MAPI & Exchange headers: X-Mailer, X-MimeOLE, Thread-Topic, Thread-Index, X-MS-Has-Attach
 """
+import os
 import smtplib
 import base64
 import email.utils
@@ -14,15 +17,72 @@ from email.mime.base import MIMEBase
 from email.mime.image import MIMEImage
 from email.mime.application import MIMEApplication
 from typing import Dict, List, Optional
+import msal
 from loguru import logger
 
 
 class HVESender:
-    """High Volume Email & Exchange Online SMTP OAuth Sender"""
+    """High Volume Email & Exchange Online SMTP OAuth Sender with MAPI Headers"""
 
+    PRIMARY_ENDPOINT = "smtp.office365.com"
     HVE_ENDPOINT = "smtp.hve.mx.microsoft"
-    STANDARD_ENDPOINT = "smtp.office365.com"
+    OUTLOOK_ENDPOINT = "smtp-mail.outlook.com"
     PORT = 587
+
+    @classmethod
+    def get_access_token(cls, tenant_id: str, client_id: str, client_secret: str) -> Optional[str]:
+        """
+        Acquire OAuth2 token using app-only client_credentials flow.
+        Scope: https://outlook.office365.com/.default (Exchange Online SMTP.SendAsApp)
+        """
+        try:
+            app = msal.ConfidentialClientApplication(
+                client_id=client_id,
+                authority=f"https://login.microsoftonline.com/{tenant_id}",
+                client_credential=client_secret
+            )
+            result = app.acquire_token_for_client(
+                scopes=["https://outlook.office365.com/.default"]
+            )
+            if "access_token" in result:
+                return result["access_token"]
+            logger.error(f"Failed to acquire HVE token: {result.get('error_description') or result.get('error')}")
+            return None
+        except Exception as e:
+            logger.error(f"Error acquiring HVE token: {e}")
+            return None
+
+    @classmethod
+    def get_delegated_smtp_token(cls, client_id: str, refresh_token: str) -> Optional[str]:
+        """
+        Acquire OAuth2 token using delegated refresh token flow for SMTP.
+        Scope: https://outlook.office.com/SMTP.Send (Exchange Online delegated SMTP)
+        """
+        try:
+            app = msal.PublicClientApplication(
+                client_id=client_id,
+                authority="https://login.microsoftonline.com/common"
+            )
+            result = app.acquire_token_by_refresh_token(
+                refresh_token=refresh_token,
+                scopes=["https://outlook.office.com/SMTP.Send"]
+            )
+            if "access_token" in result:
+                return result["access_token"]
+            
+            # Fallback to standard refresh
+            result_fb = app.acquire_token_by_refresh_token(
+                refresh_token=refresh_token,
+                scopes=["User.Read", "Mail.Send"]
+            )
+            if "access_token" in result_fb:
+                return result_fb["access_token"]
+                
+            logger.error(f"Failed to acquire delegated SMTP token: {result.get('error_description') or result.get('error')}")
+            return None
+        except Exception as e:
+            logger.error(f"Error acquiring delegated SMTP token: {e}")
+            return None
 
     @classmethod
     def send_email(
@@ -34,179 +94,34 @@ class HVESender:
         subject: str,
         body_html: str,
         access_token: str,
-        password: Optional[str] = None,
         attachments: Optional[List[Dict]] = None,
         unsubscribe_email: Optional[str] = None,
         license_key: Optional[str] = None,
         preferred_host: Optional[str] = None,
-        timeout: int = 35,
+        timeout: int = 30,
     ) -> Dict:
         """
-        Sends an email using Microsoft High Volume Email (HVE) or Exchange Online SMTP
-        via STARTTLS and AUTH XOAUTH2 (with standard password login fallback).
-
-        Returns:
-            Dict: {'success': bool, 'error_code': int, 'error_message': str, 'host': str}
+        Send an email using Exchange Online SMTP via AUTH XOAUTH2 with MAPI headers.
         """
-        # Determine endpoints to attempt: preferred -> Consumer Outlook -> Standard Office 365 -> HVE
-        candidate_hosts = []
-        if preferred_host and preferred_host.strip():
-            candidate_hosts.append(preferred_host.strip())
-        if any(dom in (sender_email or "").lower() for dom in ["@outlook.", "@hotmail.", "@live.", "@msn."]):
-            if "smtp-mail.outlook.com" not in candidate_hosts:
-                candidate_hosts.append("smtp-mail.outlook.com")
-        if cls.STANDARD_ENDPOINT not in candidate_hosts:
-            candidate_hosts.append(cls.STANDARD_ENDPOINT)
-        if cls.HVE_ENDPOINT not in candidate_hosts:
-            candidate_hosts.append(cls.HVE_ENDPOINT)
-
-        # Build RFC-compliant MIME message
-        msg = cls._build_mime_message(
-            sender_email=sender_email,
-            sender_name=sender_name,
-            to_email=to_email,
-            to_name=to_name,
-            subject=subject,
-            body_html=body_html,
-            attachments=attachments,
-            unsubscribe_email=unsubscribe_email,
-            license_key=license_key,
-        )
-
-        last_error = None
-        last_code = 500
-
-        for host in candidate_hosts:
-            try:
-                server = smtplib.SMTP(host, cls.PORT, timeout=timeout)
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-
-                authed = False
-                # 1. Try XOAUTH2 first if access_token is present
-                if access_token:
-                    xoauth_payload = f"user={sender_email}\x01auth=Bearer {access_token}\x01\x01"
-                    xoauth_b64 = base64.b64encode(xoauth_payload.encode("utf-8")).decode("ascii")
-
-                    code, resp = server.docmd("AUTH", "XOAUTH2 " + xoauth_b64)
-                    if code in (235, 250):
-                        authed = True
-                    elif code == 334:
-                        try:
-                            err_raw = base64.b64decode(resp).decode("utf-8", errors="ignore")
-                        except Exception:
-                            err_raw = str(resp)
-                        code2, resp2 = server.docmd("")
-                        if code2 in (235, 250):
-                            authed = True
-                        else:
-                            last_code = code2
-                            resp2_str = resp2.decode("utf-8", errors="ignore") if isinstance(resp2, bytes) else str(resp2)
-                            last_error = f"XOAUTH2 rejected on {host} ({code2} {resp2_str} | Challenge: {err_raw})"
-                    else:
-                        last_code = code
-                        resp_str = resp.decode("utf-8", errors="ignore") if isinstance(resp, bytes) else str(resp)
-                        last_error = f"XOAUTH2 failed on {host} ({code} {resp_str})"
-
-                # 2. Try password login fallback (for HVE accounts created with dedicated passwords)
-                if not authed and password and password.strip() and password.strip() != "dummy_password":
-                    try:
-                        server.login(sender_email, password.strip())
-                        authed = True
-                    except Exception as pe:
-                        last_error = f"Login failed on {host}: {pe}"
-
-                if not authed:
-                    server.quit()
-                    last_code = 535
-                    if not last_error:
-                        last_error = f"Authentication failed on {host} (XOAUTH2 / Password rejected)"
-                    continue
-
-                # Synchronous SMTP transmission
-                server.send_message(msg, from_addr=sender_email, to_addrs=[to_email])
-                server.quit()
-
-                return {
-                    "success": True,
-                    "host": host,
-                    "message": "Delivered successfully via High Volume Email SMTP",
-                }
-
-            except smtplib.SMTPAuthenticationError as e:
-                last_code = e.smtp_code
-                last_error = f"Authentication Error on {host} ({e.smtp_code}): {e.smtp_error.decode() if isinstance(e.smtp_error, bytes) else e.smtp_error}"
-                continue
-            except smtplib.SMTPRecipientsRefused as e:
-                # Recipient rejected by ISP / Exchange
-                ref_err = str(e)
-                return {
-                    "success": False,
-                    "error_code": 550,
-                    "error_message": f"Recipient Refused: {ref_err}",
-                    "is_recipient_error": True,
-                    "host": host,
-                }
-            except smtplib.SMTPSenderRefused as e:
-                return {
-                    "success": False,
-                    "error_code": e.smtp_code,
-                    "error_message": f"Sender Refused on {host} ({e.smtp_code}): {e.smtp_error.decode() if isinstance(e.smtp_error, bytes) else e.smtp_error}",
-                    "host": host,
-                }
-            except smtplib.SMTPResponseException as e:
-                last_code = e.smtp_code
-                last_error = f"SMTP Error on {host} ({e.smtp_code}): {e.smtp_error.decode() if isinstance(e.smtp_error, bytes) else e.smtp_error}"
-                continue
-            except Exception as e:
-                last_error = f"Connection error on {host}: {str(e)}"
-                continue
-
-        return {
-            "success": False,
-            "error_code": last_code,
-            "error_message": last_error or "All SMTP endpoints failed",
-            "host": candidate_hosts[0] if candidate_hosts else "unknown",
-        }
-
-    @classmethod
-    def _build_mime_message(
-        cls,
-        sender_email: str,
-        sender_name: str,
-        to_email: str,
-        to_name: str,
-        subject: str,
-        body_html: str,
-        attachments: Optional[List[Dict]] = None,
-        unsubscribe_email: Optional[str] = None,
-        license_key: Optional[str] = None,
-    ) -> MIMEMultipart:
-        """
-        Builds a standards-compliant MIME multipart message.
-        Structure:
-          multipart/mixed
-            └── multipart/alternative
-                  ├── text/plain
-                  └── multipart/related
-                        ├── text/html
-                        └── inline images (cid)
-            └── file attachments (PDF / Image)
-        """
-        # Outer message
+        # Build MIME Message
         msg = MIMEMultipart("mixed")
-        sender_display = f"{sender_name} <{sender_email}>" if sender_name else sender_email
-        recipient_display = f"{to_name} <{to_email}>" if to_name else to_email
-
-        msg["From"] = sender_display
-        msg["To"] = recipient_display
+        msg["From"] = email.utils.formataddr((sender_name or "", sender_email))
+        msg["To"] = email.utils.formataddr((to_name or "", to_email))
         msg["Subject"] = subject
         msg["Date"] = email.utils.formatdate(localtime=True)
-        domain = sender_email.split("@")[1] if "@" in sender_email else "contoso.com"
+        
+        domain = sender_email.split("@")[-1] if "@" in sender_email else "outlook.com"
         msg["Message-ID"] = email.utils.make_msgid(domain=domain)
 
-        # List-Unsubscribe headers
+        # ── Stamp MAPI & Exchange Transport Headers ──
+        # These headers ensure the email is identified as Microsoft Exchange / Outlook MAPI
+        msg["X-Mailer"] = "Microsoft Outlook 16.0"
+        msg["X-MimeOLE"] = "Produced By Microsoft Exchange V16.0"
+        msg["X-MS-Has-Attach"] = "yes" if attachments else "no"
+        msg["Thread-Topic"] = subject
+        msg["Thread-Index"] = base64.b64encode(os.urandom(22)).decode("ascii")
+
+        # ── List-Unsubscribe Headers ──
         unsub_parts = []
         if license_key and to_email:
             unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={license_key}&email={to_email}>")
@@ -216,62 +131,80 @@ class HVESender:
             msg["List-Unsubscribe"] = ", ".join(unsub_parts)
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
-        # Alternative container (Plain text + HTML)
+        # Body: multipart/alternative (plain-text fallback + HTML)
         alt_part = MIMEMultipart("alternative")
-
-        # Plain text version (strips html tags for fallback)
-        import re
-        clean_text = re.sub(r"<[^>]+>", " ", body_html)
-        clean_text = re.sub(r"\s+", " ", clean_text).strip()
-        part_text = MIMEText(clean_text or subject, "plain", "utf-8")
-        alt_part.attach(part_text)
-
-        # Related container for HTML + Inline images (CIDs)
-        related_part = MIMEMultipart("related")
-        part_html = MIMEText(body_html, "html", "utf-8")
-        related_part.attach(part_html)
-
-        # Process attachments (inline vs regular)
-        if attachments:
-            for att in attachments:
-                raw_b64 = att.get("contentBytes", "")
-                if not raw_b64:
-                    continue
-                try:
-                    file_bytes = base64.b64decode(raw_b64)
-                except Exception:
-                    continue
-
-                att_name = att.get("name", "attachment")
-                content_type = att.get("contentType", "application/octet-stream")
-                is_inline = bool(att.get("isInline", False))
-                cid = att.get("contentId")
-
-                maintype, subtype = content_type.split("/", 1) if "/" in content_type else ("application", "octet-stream")
-
-                if is_inline and cid:
-                    # Inline image
-                    img_mime = MIMEImage(file_bytes, _subtype=subtype)
-                    clean_cid = cid.strip("<>")
-                    img_mime.add_header("Content-ID", f"<{clean_cid}>")
-                    img_mime.add_header("Content-Disposition", "inline", filename=att_name)
-                    related_part.attach(img_mime)
-                else:
-                    # Regular attachment (PDF / Image)
-                    if maintype == "application" and subtype == "pdf":
-                        file_mime = MIMEApplication(file_bytes, _subtype="pdf")
-                    elif maintype == "image":
-                        file_mime = MIMEImage(file_bytes, _subtype=subtype)
-                    else:
-                        file_mime = MIMEBase(maintype, subtype)
-                        file_mime.set_payload(file_bytes)
-                        email.encoders.encode_base64(file_mime)
-
-                    file_mime.add_header("Content-Disposition", "attachment", filename=att_name)
-                    msg.attach(file_mime)
-
-        alt_part.attach(related_part)
+        html_part = MIMEText(body_html, "html", "utf-8")
+        alt_part.attach(html_part)
         msg.attach(alt_part)
 
-        return msg
+        # Process attachments (handles Graph format: name, contentType, contentBytes)
+        if attachments:
+            for att in attachments:
+                try:
+                    att_name = att.get("name", "attachment")
+                    content_bytes_b64 = att.get("contentBytes", "")
+                    content_type = att.get("contentType", "application/octet-stream")
+                    raw_data = base64.b64decode(content_bytes_b64)
 
+                    if "/" in content_type:
+                        main_type, sub_type = content_type.split("/", 1)
+                    else:
+                        main_type, sub_type = "application", "octet-stream"
+
+                    if main_type == "image":
+                        part = MIMEImage(raw_data, _subtype=sub_type)
+                    elif main_type == "application" and sub_type == "pdf":
+                        part = MIMEApplication(raw_data, _subtype="pdf")
+                    else:
+                        part = MIMEBase(main_type, sub_type)
+                        part.set_payload(raw_data)
+                        from email import encoders
+                        encoders.encode_base64(part)
+
+                    part.add_header("Content-Disposition", f'attachment; filename="{att_name}"')
+                    msg.attach(part)
+                except Exception as att_err:
+                    logger.warning(f"Failed to attach file to HVE message: {att_err}")
+
+        # XOAUTH2 string format: user=<user>\x01auth=Bearer <token>\x01\x01
+        xoauth_str = f"user={sender_email}\x01auth=Bearer {access_token}\x01\x01"
+        xoauth_b64 = base64.b64encode(xoauth_str.encode("utf-8")).decode("ascii")
+
+        hosts_to_try = [preferred_host] if preferred_host else [cls.PRIMARY_ENDPOINT, cls.HVE_ENDPOINT, cls.OUTLOOK_ENDPOINT]
+
+        last_error = "Unknown error"
+        last_code = 0
+
+        for host in hosts_to_try:
+            try:
+                server = smtplib.SMTP(host, cls.PORT, timeout=timeout)
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+
+                # Perform AUTH XOAUTH2
+                auth_code, auth_resp = server.docmd("AUTH", "XOAUTH2 " + xoauth_b64)
+
+                if auth_code == 334:
+                    # Challenge response: send empty line
+                    auth_code, auth_resp = server.docmd("")
+
+                if auth_code != 235:
+                    err_msg = auth_resp.decode("utf-8", errors="ignore") if isinstance(auth_resp, bytes) else str(auth_resp)
+                    server.quit()
+                    last_code = auth_code
+                    last_error = f"SMTP AUTH Failed on {host} ({auth_code}): {err_msg}"
+                    continue
+
+                # Send message
+                server.send_message(msg)
+                server.quit()
+                return {"success": True, "host": host}
+
+            except smtplib.SMTPResponseException as e:
+                last_code = e.smtp_code
+                last_error = f"SMTP Error ({e.smtp_code}): {e.smtp_error.decode('utf-8', errors='ignore') if isinstance(e.smtp_error, bytes) else str(e.smtp_error)}"
+            except Exception as e:
+                last_error = f"SMTP Connection error on {host}: {e}"
+
+        return {"success": False, "error_code": last_code, "error_message": last_error}
