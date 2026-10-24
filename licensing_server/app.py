@@ -349,16 +349,37 @@ def api_activate():
 @app.route('/unsubscribe', methods=['GET', 'POST'])
 def handle_unsubscribe():
     email = request.args.get('email') or request.form.get('email')
-    lic_key = request.args.get('lic') or request.form.get('lic') or 'GLOBAL'
+    lic_key = (request.args.get('lic') or request.form.get('lic') or 'GLOBAL').strip()
     
     if email:
         clean_email = email.strip().lower()
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+        
+        # Check if lic_key matches either license_key or customer_name
+        cursor.execute("SELECT license_key, customer_name FROM licenses WHERE license_key = ? OR customer_name = ?", (lic_key, lic_key))
+        lic_row = cursor.fetchone()
+        
+        # Insert for the passed lic_key
         cursor.execute(
             "INSERT OR IGNORE INTO unsubscribed_contacts (license_key, email) VALUES (?, ?)",
-            (lic_key.strip(), clean_email)
+            (lic_key, clean_email)
         )
+        
+        # Also link to associated license_key and customer_name to ensure desktop auto-sync finds it
+        if lic_row:
+            if lic_row['license_key'] and lic_row['license_key'].strip() != lic_key:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO unsubscribed_contacts (license_key, email) VALUES (?, ?)",
+                    (lic_row['license_key'].strip(), clean_email)
+                )
+            if lic_row['customer_name'] and lic_row['customer_name'].strip() != lic_key:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO unsubscribed_contacts (license_key, email) VALUES (?, ?)",
+                    (lic_row['customer_name'].strip(), clean_email)
+                )
+
         conn.commit()
         conn.close()
 
@@ -398,9 +419,19 @@ def api_get_unsubscribed():
         cursor = conn.cursor()
         
         if lic_key:
+            cursor.execute("SELECT license_key, customer_name FROM licenses WHERE license_key = ? OR customer_name = ?", (lic_key, lic_key))
+            lic_row = cursor.fetchone()
+            keys = {lic_key, 'GLOBAL'}
+            if lic_row:
+                if lic_row['license_key']:
+                    keys.add(lic_row['license_key'].strip())
+                if lic_row['customer_name']:
+                    keys.add(lic_row['customer_name'].strip())
+            
+            placeholders = ','.join(['?'] * len(keys))
             cursor.execute(
-                "SELECT email, datetime(unsubscribed_at, 'localtime') as unsubscribed_at FROM unsubscribed_contacts WHERE license_key = ? OR license_key = 'GLOBAL' ORDER BY unsubscribed_at DESC",
-                (lic_key,)
+                f"SELECT email, datetime(unsubscribed_at, 'localtime') as unsubscribed_at FROM unsubscribed_contacts WHERE license_key IN ({placeholders}) ORDER BY unsubscribed_at DESC",
+                tuple(keys)
             )
         else:
             cursor.execute(
@@ -430,11 +461,21 @@ def api_delete_unsubscribed():
         email = data.get('email', '').strip().lower()
         if email:
             conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             if lic_key:
+                cursor.execute("SELECT license_key, customer_name FROM licenses WHERE license_key = ? OR customer_name = ?", (lic_key, lic_key))
+                lic_row = cursor.fetchone()
+                keys = {lic_key, 'GLOBAL'}
+                if lic_row:
+                    if lic_row['license_key']:
+                        keys.add(lic_row['license_key'].strip())
+                    if lic_row['customer_name']:
+                        keys.add(lic_row['customer_name'].strip())
+                placeholders = ','.join(['?'] * len(keys))
                 cursor.execute(
-                    "DELETE FROM unsubscribed_contacts WHERE LOWER(email) = ? AND (license_key = ? OR license_key = 'GLOBAL')",
-                    (email, lic_key)
+                    f"DELETE FROM unsubscribed_contacts WHERE LOWER(email) = ? AND license_key IN ({placeholders})",
+                    (email, *tuple(keys))
                 )
             else:
                 cursor.execute(
@@ -454,11 +495,21 @@ def api_clear_unsubscribed():
         data = request.json or request.form or {}
         lic_key = data.get('lic', '').strip()
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         if lic_key:
+            cursor.execute("SELECT license_key, customer_name FROM licenses WHERE license_key = ? OR customer_name = ?", (lic_key, lic_key))
+            lic_row = cursor.fetchone()
+            keys = {lic_key, 'GLOBAL'}
+            if lic_row:
+                if lic_row['license_key']:
+                    keys.add(lic_row['license_key'].strip())
+                if lic_row['customer_name']:
+                    keys.add(lic_row['customer_name'].strip())
+            placeholders = ','.join(['?'] * len(keys))
             cursor.execute(
-                "DELETE FROM unsubscribed_contacts WHERE license_key = ? OR license_key = 'GLOBAL'",
-                (lic_key,)
+                f"DELETE FROM unsubscribed_contacts WHERE license_key IN ({placeholders})",
+                tuple(keys)
             )
         else:
             cursor.execute("DELETE FROM unsubscribed_contacts")

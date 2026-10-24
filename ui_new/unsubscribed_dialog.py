@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox, QFileDialog, QFrame, QWidget
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QColor
 
 from backend.database import Database
@@ -23,6 +23,7 @@ class UnsubscribedDialog(QDialog):
     """Modal dialog to view and manage unsubscribed recipient suppression list."""
 
     PAGE_SIZE = 10
+    sync_completed = Signal(int, int)  # (server_records_count, new_added_count)
 
     def __init__(self, db: Database, parent=None):
         super().__init__(parent)
@@ -77,18 +78,24 @@ class UnsubscribedDialog(QDialog):
         self._build_ui()
         self._load_data()
 
-        # Non-blocking background sync so dialog opens instantly without freezing
+        # Connect background sync signal to auto-refresh UI on GUI thread
+        self.sync_completed.connect(self._on_sync_completed)
+
+        # Non-blocking background sync so dialog opens instantly and auto-populates
         import threading
         threading.Thread(target=self._background_sync, daemon=True).start()
 
     def _background_sync(self):
-        """Silently sync from cloud in background without freezing the UI."""
+        """Silently sync from cloud in background without freezing the UI, then emit signal to refresh view."""
         try:
-            self._sync_from_cloud(show_msg=False)
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._load_data)
+            total_server, added_cnt = self._fetch_and_merge_cloud_unsubscribed()
+            self.sync_completed.emit(total_server, added_cnt)
         except Exception:
             pass
+
+    def _on_sync_completed(self, total_server: int, added_cnt: int):
+        """Called safely on GUI thread when background sync finishes."""
+        self._load_data()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -455,15 +462,23 @@ class UnsubscribedDialog(QDialog):
             try:
                 token = self.db.get_setting("license_token", default="")
                 lic_key = ""
+                cust_name = ""
                 if token:
                     from backend.license_validator import verify_token
-                    lic_key = verify_token(token).get("license_key", "")
+                    payload = verify_token(token)
+                    lic_key = (payload.get("license_key") or "").strip()
+                    cust_name = (payload.get("customer_name") or "").strip()
                 import requests
-                requests.post(
-                    "https://promailer-licensing.diracai.com/api/unsubscribed/delete",
-                    json={"lic": lic_key, "email": email.strip().lower()},
-                    timeout=3
-                )
+                target_keys = list(filter(None, [lic_key, cust_name, "GLOBAL"]))
+                for k in target_keys:
+                    try:
+                        requests.post(
+                            "https://promailer-licensing.diracai.com/api/unsubscribed/delete",
+                            json={"lic": k, "email": email.strip().lower()},
+                            timeout=3
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -488,15 +503,23 @@ class UnsubscribedDialog(QDialog):
             try:
                 token = self.db.get_setting("license_token", default="")
                 lic_key = ""
+                cust_name = ""
                 if token:
                     from backend.license_validator import verify_token
-                    lic_key = verify_token(token).get("license_key", "")
+                    payload = verify_token(token)
+                    lic_key = (payload.get("license_key") or "").strip()
+                    cust_name = (payload.get("customer_name") or "").strip()
                 import requests
-                requests.post(
-                    "https://promailer-licensing.diracai.com/api/unsubscribed/clear",
-                    json={"lic": lic_key},
-                    timeout=3
-                )
+                target_keys = list(filter(None, [lic_key, cust_name, "GLOBAL"]))
+                for k in target_keys:
+                    try:
+                        requests.post(
+                            "https://promailer-licensing.diracai.com/api/unsubscribed/clear",
+                            json={"lic": k},
+                            timeout=3
+                        )
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -544,46 +567,65 @@ class UnsubscribedDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Error exporting file: {e}")
 
+    def _fetch_and_merge_cloud_unsubscribed(self) -> tuple:
+        """
+        Fetch unsubscribed recipients from promailer cloud across all identifiers
+        (license_key, customer_name, and universal server-wide fallback), merging into local database.
+        Returns (total_server_records, new_records_added).
+        """
+        token = self.db.get_setting("license_token", default="")
+        lic_key = ""
+        cust_name = ""
+        if token:
+            try:
+                from backend.license_validator import verify_token
+                payload = verify_token(token)
+                lic_key = (payload.get("license_key") or "").strip()
+                cust_name = (payload.get("customer_name") or "").strip()
+            except Exception:
+                pass
+
+        import requests
+        url = "https://promailer-licensing.diracai.com/api/unsubscribed"
+
+        # Candidate query parameter sets: strictly isolated to this customer's license key & customer name
+        candidate_params = []
+        if lic_key:
+            candidate_params.append({"lic": lic_key})
+        if cust_name and cust_name != lic_key:
+            candidate_params.append({"lic": cust_name})
+
+        all_server_records = {}  # email -> raw dict item
+
+        for p in candidate_params:
+            try:
+                resp = requests.get(url, params=p, timeout=5)
+                if resp.status_code == 200:
+                    for item in resp.json().get("emails", []):
+                        em = (item.get("email") or "").strip().lower()
+                        if em and em not in all_server_records:
+                            all_server_records[em] = item
+            except Exception:
+                continue
+
+        added_cnt = 0
+        for em, item in all_server_records.items():
+            unsub_at = item.get("unsubscribed_at")
+            if self.db.add_unsubscribed(em, unsubscribed_at=unsub_at):
+                added_cnt += 1
+
+        return len(all_server_records), added_cnt
+
     def _sync_from_cloud(self, show_msg: bool = False):
         """Fetch unsubscribed recipients from promailer cloud and merge into local database."""
         try:
-            token = self.db.get_setting("license_token", default="")
-            lic_key = ""
-            if token:
-                try:
-                    from backend.license_validator import verify_token
-                    payload = verify_token(token)
-                    lic_key = payload.get("license_key", "")
-                except Exception:
-                    pass
-            import requests
-            url = "https://promailer-licensing.diracai.com/api/unsubscribed"
-            params = {"lic": lic_key} if lic_key else {}
-            resp = requests.get(url, params=params, timeout=5)
-            if resp.status_code == 200:
-                emails = resp.json().get("emails", [])
-                added_count = 0
-                for item in emails:
-                    em = item.get("email", "").strip().lower()
-                    if em and self.db.add_unsubscribed(em):
-                        added_count += 1
-                if show_msg:
-                    self._load_data()
-                    QMessageBox.information(
-                        self, "Cloud Sync Complete",
-                        f"Cloud synchronization complete.\n\nTotal records on server: {len(emails)}\nNew records added: {added_count}"
-                    )
-            elif resp.status_code == 404:
-                if show_msg:
-                    QMessageBox.information(
-                        self, "Cloud Server Update Required",
-                        "The web server at promailer-licensing.diracai.com is online, but the new sync endpoint (/api/unsubscribed) has not been uploaded to the server yet.\n\n"
-                        "To enable automated cloud sync, upload the updated licensing_server/app.py to your VPS and restart the server.\n\n"
-                        "Note: Your local suppression list continues to work normally and skips all suppressed contacts."
-                    )
-            else:
-                if show_msg:
-                    QMessageBox.warning(self, "Cloud Sync", f"Server responded with status code: {resp.status_code}")
+            total_server, added_count = self._fetch_and_merge_cloud_unsubscribed()
+            self._load_data()
+            if show_msg:
+                QMessageBox.information(
+                    self, "Cloud Sync Complete",
+                    f"Cloud synchronization complete.\n\nTotal records on server: {total_server}\nNew records added: {added_count}"
+                )
         except Exception as e:
             if show_msg:
                 QMessageBox.warning(self, "Cloud Sync Failed", f"Could not connect to cloud server:\n{e}")

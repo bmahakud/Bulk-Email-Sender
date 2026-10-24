@@ -178,6 +178,7 @@ class TagProcessor:
         # Unsubscribe link (points to promailer cloud server if license key available, else mailto fallback)
         custom_unsub = campaign_tags.get("custom_unsubscribe_url", "").strip()
         lic_key = campaign_tags.get("license_key", "").strip()
+        cust_name = ""
         if not lic_key:
             try:
                 from backend.database import Database
@@ -185,14 +186,18 @@ class TagProcessor:
                 _db = Database()
                 tok = _db.get_setting("license_token", default="")
                 if tok:
-                    lic_key = verify_token(tok).get("license_key", "")
+                    _p = verify_token(tok)
+                    lic_key = (_p.get("license_key") or "").strip()
+                    cust_name = (_p.get("customer_name") or "").strip()
             except Exception:
                 pass
 
+        active_lic = lic_key or cust_name
+
         if custom_unsub:
             unsub_link = custom_unsub
-        elif lic_key and email:
-            unsub_link = f"https://promailer-licensing.diracai.com/unsubscribe?lic={lic_key}&email={email}"
+        elif active_lic and email:
+            unsub_link = f"https://promailer-licensing.diracai.com/unsubscribe?lic={active_lic}&email={email}"
         else:
             target_sender = sender_email if sender_email else "optout@domain.com"
             unsub_link = f"mailto:{target_sender}?subject=Unsubscribe%20Request&body=Please%20unsubscribe%20my%20email:%20{email}"
