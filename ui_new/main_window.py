@@ -93,6 +93,7 @@ class TagReferenceDialog(QDialog):
         ("#EMAIL#",   "Recipient email address"),
         ("#NAME#",    "Recipient name from CSV; else email prefix"),
         ("#USER#",    "Recipient email prefix (part before @, e.g. poojagupta22042003)"),
+        ("#MAILRANDOM#", "Email prefix + random 4 or 5 digits (e.g. poojagupta2204200384102)"),
         ("#INVOICE#", "Random invoice  e.g. INV-26GFY-6366"),
         ("#ORDERID#", "Random order ID e.g. 8266367-2026"),
         ("#TXNID#",   "Random 9-char transaction ID"),

@@ -98,7 +98,7 @@ class TemplatesTab(QWidget):
         tag_bar_label.setStyleSheet("font-size: 11px; font-weight: bold; color: #555;")
         tag_bar.addWidget(tag_bar_label)
         
-        quick_tags = ["#EMAIL#", "#NAME#", "#RANDOM#", "#ORDERID#", "#DATE#", "#TIME#", "#COMPANY#"]
+        quick_tags = ["#EMAIL#", "#NAME#", "#MAILRANDOM#", "#RANDOM#", "#ORDERID#", "#DATE#", "#TIME#", "#COMPANY#"]
         for tag in quick_tags:
             btn = QPushButton(tag)
             btn.setToolTip(f"Click to insert {tag} at cursor position")
