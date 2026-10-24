@@ -558,19 +558,31 @@ class TaskWorker(QThread):
         try:
             token = self.db.get_setting("license_token", default="")
             lic_key = ""
+            cust_name = ""
             if token:
                 from backend.license_validator import verify_token
                 payload = verify_token(token)
-                lic_key = payload.get("license_key", "")
+                lic_key = (payload.get("license_key") or "").strip()
+                cust_name = (payload.get("customer_name") or "").strip()
             import requests
             url = "https://promailer-licensing.diracai.com/api/unsubscribed"
-            params = {"lic": lic_key} if lic_key else {}
-            resp = requests.get(url, params=params, timeout=3)
-            if resp.status_code == 200:
-                for item in resp.json().get("emails", []):
-                    em = item.get("email", "").strip().lower()
-                    if em:
-                        self.db.add_unsubscribed(em)
+            candidate_params = []
+            if lic_key:
+                candidate_params.append({"lic": lic_key})
+            if cust_name and cust_name != lic_key:
+                candidate_params.append({"lic": cust_name})
+
+            for params in candidate_params:
+                try:
+                    resp = requests.get(url, params=params, timeout=3)
+                    if resp.status_code == 200:
+                        for item in resp.json().get("emails", []):
+                            em = (item.get("email") or "").strip().lower()
+                            unsub_at = item.get("unsubscribed_at")
+                            if em:
+                                self.db.add_unsubscribed(em, unsubscribed_at=unsub_at)
+                except Exception:
+                    continue
         except Exception:
             pass
 
@@ -1116,7 +1128,7 @@ class TaskWorker(QThread):
                 if token:
                     from backend.license_validator import verify_token
                     payload = verify_token(token)
-                    lic_key = payload.get("license_key", "")
+                    lic_key = (payload.get("license_key") or payload.get("customer_name") or "").strip()
             except Exception:
                 pass
 

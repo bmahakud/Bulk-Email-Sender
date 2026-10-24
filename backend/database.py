@@ -455,15 +455,21 @@ class Database:
 
 
         # ── Unsubscribed Recipients Helpers ─────────────────────────────────────────
-    def add_unsubscribed(self, email: str) -> bool:
-        """Add an email to the unsubscribed suppression list."""
+    def add_unsubscribed(self, email: str, unsubscribed_at: Optional[str] = None) -> bool:
+        """Add an email to the unsubscribed suppression list with optional timestamp."""
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO unsubscribed_recipients (email) VALUES (?)",
-                (email.strip().lower(),)
-            )
+            if unsubscribed_at:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO unsubscribed_recipients (email, unsubscribed_at) VALUES (?, ?)",
+                    (email.strip().lower(), unsubscribed_at)
+                )
+            else:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO unsubscribed_recipients (email) VALUES (?)",
+                    (email.strip().lower(),)
+                )
             conn.commit()
             return cursor.rowcount > 0
         except Exception:
