@@ -58,7 +58,7 @@ class GraphAPIClient:
         unsub_parts = []
         if license_key and to_email:
             unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={license_key}&email={to_email}>")
-        if unsubscribe_email:
+        elif unsubscribe_email:
             unsub_parts.append(f"<mailto:{unsubscribe_email}?subject=Unsubscribe%20Request>")
 
         if unsub_parts:

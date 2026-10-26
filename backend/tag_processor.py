@@ -192,7 +192,7 @@ class TagProcessor:
             except Exception:
                 pass
 
-        active_lic = lic_key or cust_name
+        active_lic = cust_name or lic_key
 
         if custom_unsub:
             unsub_link = custom_unsub

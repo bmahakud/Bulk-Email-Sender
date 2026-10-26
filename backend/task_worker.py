@@ -1065,12 +1065,28 @@ class TaskWorker(QThread):
 
                 final_email_body = data_uri_regex.sub(_replace_data_uri_with_cid, final_email_body)
 
+            # Retrieve active license key for unsubscribe link
+            lic_key = ""
+            try:
+                token = self.db.get_setting("license_token", default="")
+                if token:
+                    from backend.license_validator import verify_token
+                    payload = verify_token(token)
+                    lic_key = (payload.get("customer_name") or payload.get("license_key") or "").strip()
+            except Exception:
+                pass
 
-
-
-
-
-
+            # Automatically ensure a visible Unsubscribe footer is present if not already in body
+            if "unsubscribe" not in final_email_body.lower():
+                unsub_href = f"https://promailer-licensing.diracai.com/unsubscribe?lic={lic_key}&email={recipient['email']}"
+                unsub_html_footer = (
+                    f'<br><div style="font-size: 11px; color: #888888; text-align: center; '
+                    f'padding-top: 14px; margin-top: 20px; border-top: 1px solid #eeeeee;">'
+                    f'If you do not wish to receive further emails, you may '
+                    f'<a href="{unsub_href}" style="color: #666666; text-decoration: underline;">unsubscribe here</a>.'
+                    f'</div>'
+                )
+                final_email_body += unsub_html_footer
              # ── Exchange Online SMTP (XOAUTH2) with MAPI Headers & Failsafe ──
             from graph.auth import GraphAuth
             from backend.hve_sender import HVESender
@@ -1128,7 +1144,7 @@ class TaskWorker(QThread):
                 if token:
                     from backend.license_validator import verify_token
                     payload = verify_token(token)
-                    lic_key = (payload.get("license_key") or payload.get("customer_name") or "").strip()
+                    lic_key = (payload.get("customer_name") or payload.get("license_key") or "").strip()
             except Exception:
                 pass
 
