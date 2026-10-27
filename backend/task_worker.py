@@ -1121,18 +1121,12 @@ class TaskWorker(QThread):
                         current_smtp['token'] = new_refresh
             except Exception as e:
                 self.log_message.emit(f"[Task {self.task_id}]  ❌ Auth Error: Failed to acquire token for {current_smtp['email']}: {e}")
-                if mode == 'auto':
-                    self.log_message.emit(f"[Task {self.task_id}]  ⚠ [SWITCH] {current_smtp['email']} → next")
-                    self.db.update_smtp_status(current_smtp['email'], 'error')
-                    current_smtp['status'] = 'error'
-                    smtp_idx += 1
-                    smtp_sent_cnt = 0
-                else:
-                    failed += 1
-                    self.db.update_recipient_status(recipient['id'], 'failed', error_message=f"Auth Failed: {e}")
-                    self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', 401, f"Auth Failed: {e}")
-                    recipients_queue.pop(0)
-                    tpl_idx += 1; subj_idx += 1; sndr_idx += 1
+                self.log_message.emit(f"[Task {self.task_id}]  ⚠ [SWITCH] {current_smtp['email']} → next")
+                self.db.update_smtp_status(current_smtp['email'], 'error')
+                current_smtp['status'] = 'error'
+                smtp_idx += 1
+                smtp_sent_cnt = 0
+                time.sleep(0.5)
                 continue
 
             self.log_message.emit(f"[Task {self.task_id}] 📧 → {recipient['email']} via {current_smtp['email']}")
@@ -1212,16 +1206,48 @@ class TaskWorker(QThread):
                 ec  = result.get('error_code', 0)
                 em  = result.get('error_message', 'Unknown error')
                 
-                # Is it an authentication error or rate limit? (401, 403, 429)
-                is_recipient_err = any(k in em.lower() for k in ("recipient", "not valid", "not resolved", "address", "invalid"))
-                if mode == 'auto' and not is_recipient_err and (graph.is_auth_error(ec) or ec == 429):
-                    self.log_message.emit(f"[Task {self.task_id}]  ❌ Sender Error on send via {current_smtp['email']} HTTP {ec}: {em} (Swapping sender...)")
-                    self.db.update_smtp_status(current_smtp['email'], 'error')
-                    current_smtp['status'] = 'error'
+                em_lower = em.lower()
+                
+                # Check for sender-side quota / rate-limit / auth exhaustion:
+                is_sender_limit = (
+                    ec in (401, 403, 429)
+                    or graph.is_auth_error(ec)
+                    or any(k in em_lower for k in (
+                        "quota",
+                        "limit exceeded",
+                        "refusequota",
+                        "showtierupgrade",
+                        "wascl",
+                        "rate limit",
+                        "throttl",
+                        "toomanyrequests",
+                        "unauthorized",
+                        "access token",
+                        "try again later"
+                    ))
+                )
+                
+                # Genuine recipient address error (only if NOT a sender limit):
+                is_recipient_err = (not is_sender_limit) and any(
+                    k in em_lower for k in (
+                        "not valid recipient",
+                        "recipient address is invalid",
+                        "recipient was not resolved",
+                        "mailbox unavailable",
+                        "user not found",
+                        "malformed",
+                        "syntax error"
+                    )
+                )
+
+                if is_sender_limit or (mode == 'auto' and not is_recipient_err and ec >= 400):
+                    self.log_message.emit(f"[Task {self.task_id}]  🔄 Sender Quota / Daily Limit on {current_smtp['email']} (HTTP {ec}) → Auto-switching to next sender...")
+                    self.db.update_smtp_status(current_smtp['email'], 'exhausted')
+                    current_smtp['status'] = 'exhausted'
                     smtp_idx += 1
                     smtp_sent_cnt = 0
                     time.sleep(0.5)
-                    continue  # Retry same recipient with rotated SMTP
+                    continue  # Retry same recipient with next rotated SMTP without marking as failed
                 else:
                     failed += 1
                     self.log_message.emit(f"[Task {self.task_id}]  ❌ FAIL HTTP {ec}: {em}")
