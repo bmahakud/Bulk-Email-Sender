@@ -67,13 +67,10 @@ class GraphAuth:
     ]
     
     def __init__(self, client_id: Optional[str] = None):
-        self.client_id = client_id or os.getenv("CLIENT_ID")
+        self.client_id = client_id or os.getenv("CLIENT_ID") or "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
         self.client_secret = os.getenv("CLIENT_SECRET")
         self.tenant_id = os.getenv("TENANT_ID", "common")
         self.redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:8000/callback")
-        
-        if not self.client_id:
-            raise ValueError("CLIENT_ID not found in environment variables")
         
         self.authority = f"https://login.microsoftonline.com/{self.tenant_id}"
         
@@ -178,9 +175,12 @@ class GraphAuth:
                 scopes=self.SCOPES
             )
             
-            # Smart Fallback: if tenant mismatch (AADSTS50020) or scope issue (AADSTS70000) is detected
+            # Smart Fallback: if tenant mismatch (AADSTS50020) or scope issue (AADSTS70000) is detected (and not abuse)
             if "access_token" not in result:
                 err_desc = result.get('error_description', '')
+                if "abuse" in err_desc.lower():
+                    logger.warning(f"Microsoft flagged account (abuse mode): {err_desc[:60]}...")
+                    return None
                 if "AADSTS50020" in err_desc or "AADSTS70000" in err_desc:
                     logger.info("Access denied or scope expired. Retrying with 'common' tenant and '.default' scope...")
                     common_app = msal.PublicClientApplication(

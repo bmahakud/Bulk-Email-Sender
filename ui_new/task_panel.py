@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QMessageBox, QDialog, QDialogButtonBox,
     QSizePolicy, QComboBox
 )
-from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtCore import Qt, Signal, QTimer, QThread
 from PySide6.QtGui import QFont, QPixmap
 
 from backend.database import Database
@@ -141,6 +141,304 @@ class PasteDialog(QDialog):
 
     def get_text(self) -> str:
         return self.edit.toPlainText()
+
+
+def _parse_account_entry(raw_item):
+    """
+    Parses any account line or list into (email, password, token, client_id).
+    Supports separators: |, :, ,, tab, ;
+    Supports 2 columns: email, password
+    Supports 3 columns: email, password, token
+    Supports 4 columns: email, password, token, client_id
+    Supports 5+ columns: email, password, token, client_id, recovery_email...
+    """
+    DEFAULT_CLIENT_ID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
+    
+    parts = []
+    if isinstance(raw_item, (list, tuple)):
+        if len(raw_item) == 1 and isinstance(raw_item[0], str):
+            s = raw_item[0].strip()
+            for sep in ['|', '\t', ',', ';', ':']:
+                if sep in s:
+                    parts = [p.strip() for p in s.split(sep)]
+                    break
+            if not parts and s:
+                parts = [s]
+        else:
+            parts = [str(c).strip() for c in raw_item if c is not None]
+    elif isinstance(raw_item, str):
+        s = raw_item.strip()
+        for sep in ['|', '\t', ',', ';', ':']:
+            if sep in s:
+                parts = [p.strip() for p in s.split(sep)]
+                break
+        if not parts and s:
+            parts = [s]
+
+    if not parts or len(parts) < 2:
+        return None
+
+    email = parts[0].strip()
+    if '@' not in email or '.' not in email.split('@')[-1]:
+        return None
+
+    password = parts[1].strip()
+    token = parts[2].strip() if len(parts) >= 3 else ""
+    client_id = parts[3].strip() if len(parts) >= 4 and parts[3].strip() else DEFAULT_CLIENT_ID
+
+    return (email, password, token, client_id)
+
+
+class AddAccountDialog(QDialog):
+    """Modal dialog to add single or multiple transport accounts cleanly."""
+    def __init__(self, default_email="", default_pass="", default_token="", default_cid="9e5f94bc-e8a4-4e73-b8be-63364c29d753", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add Transport / SMTP Account")
+        self.setMinimumSize(560, 440)
+        self.setStyleSheet("""
+            QDialog { background:#1a1b27; color:#e8eaf0; }
+            QLabel  { color:#a0a8c8; font-size:12px; font-weight:600; }
+            QLineEdit, QTextEdit { background:#252637; color:#e8eaf0; border:1px solid #3d3f52;
+                        border-radius:5px; padding:7px; font-size:12px; }
+            QPushButton { background:#43b581; color:white; border:none;
+                          padding:8px 20px; border-radius:5px; font-weight:600; font-size:12px; }
+            QPushButton:hover { background:#369e6b; }
+            QPushButton#btnCancel { background:#3d3f52; color:#fff; }
+            QPushButton#btnCancel:hover { background:#52546e; }
+        """)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 20, 20, 20)
+        lay.setSpacing(12)
+
+        lbl_top = QLabel("Enter account credentials below, or paste raw account line(s):")
+        lay.addWidget(lbl_top)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+        self.inp_email = QLineEdit(default_email)
+        self.inp_email.setPlaceholderText("user@outlook.com or username")
+        form.addRow("Email / Username:", self.inp_email)
+
+        self.inp_pass = QLineEdit(default_pass)
+        self.inp_pass.setPlaceholderText("Password / Azure Client Secret")
+        self.inp_pass.setEchoMode(QLineEdit.PasswordEchoOnEdit)
+        form.addRow("Password / Secret:", self.inp_pass)
+
+        self.inp_token = QLineEdit(default_token)
+        self.inp_token.setPlaceholderText("OAuth Refresh Token (or hve:TenantID, or leave blank)")
+        form.addRow("OAuth Token / Tenant:", self.inp_token)
+
+        self.inp_cid = QLineEdit(default_cid)
+        self.inp_cid.setPlaceholderText("Client ID (default: 9e5f94bc-...)")
+        form.addRow("Client ID:", self.inp_cid)
+
+        lay.addLayout(form)
+
+        lbl_or = QLabel("— OR Paste Raw Line(s) (email | password | token | client_id) —")
+        lbl_or.setStyleSheet("color:#7880a0; font-size:11px; margin-top:5px;")
+        lay.addWidget(lbl_or)
+
+        self.txt_bulk = QTextEdit()
+        self.txt_bulk.setFixedHeight(85)
+        self.txt_bulk.setPlaceholderText("user@outlook.com|password123|M.C503_BAY...|9e5f94bc-...\n(Can paste multiple lines)")
+        lay.addWidget(self.txt_bulk)
+
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setObjectName("btnCancel")
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_add = QPushButton("➕ Add Account(s)")
+        btn_add.clicked.connect(self._validate_and_accept)
+
+        btn_box.addWidget(btn_cancel)
+        btn_box.addWidget(btn_add)
+        lay.addLayout(btn_box)
+
+    def _validate_and_accept(self):
+        accs = self.get_accounts()
+        if not accs:
+            QMessageBox.warning(self, "Missing Information", "Please enter a valid email and password or paste an account line.")
+            return
+        self.accept()
+
+    def get_accounts(self):
+        results = []
+        raw = self.txt_bulk.toPlainText().strip()
+        if raw:
+            for line in raw.split('\n'):
+                entry = _parse_account_entry(line)
+                if entry:
+                    results.append(entry)
+
+        em = self.inp_email.text().strip()
+        pw = self.inp_pass.text().strip()
+        tok = self.inp_token.text().strip()
+        cid = self.inp_cid.text().strip() or "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
+        if em and '@' in em and pw:
+            results.append((em, pw, tok, cid))
+
+        return results
+
+
+class HVEDialog(QDialog):
+    """Clean dialog to configure an enterprise High Volume Email (HVE) account."""
+    def __init__(self, default_email="", default_secret="", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add High Volume Email (HVE) Account")
+        self.setMinimumSize(540, 360)
+        self.setStyleSheet("""
+            QDialog { background:#1a1b27; color:#e8eaf0; }
+            QLabel  { color:#a0a8c8; font-size:12px; font-weight:600; }
+            QLineEdit { background:#252637; color:#e8eaf0; border:1px solid #3d3f52;
+                        border-radius:5px; padding:7px; font-size:12px; }
+            QPushButton { background:#00b894; color:white; border:none;
+                          padding:8px 20px; border-radius:5px; font-weight:600; font-size:12px; }
+            QPushButton:hover { background:#009874; }
+            QPushButton#btnCancel { background:#3d3f52; color:#fff; }
+            QPushButton#btnCancel:hover { background:#52546e; }
+        """)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 20, 20, 20)
+        lay.setSpacing(12)
+
+        info = QLabel("Configure Microsoft 365 High Volume Email (HVE):\n(Requires Azure App Registration / Service Principal)")
+        info.setStyleSheet("color:#00b894; font-size:12px; font-weight:700;")
+        lay.addWidget(info)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+        self.inp_email = QLineEdit(default_email)
+        self.inp_email.setPlaceholderText("sender@yourdomain.com (HVE-enabled mailbox)")
+        form.addRow("HVE Sender Email:", self.inp_email)
+
+        self.inp_secret = QLineEdit(default_secret)
+        self.inp_secret.setPlaceholderText("Azure Client Secret Value")
+        self.inp_secret.setEchoMode(QLineEdit.PasswordEchoOnEdit)
+        form.addRow("Client Secret:", self.inp_secret)
+
+        self.inp_tenant = QLineEdit()
+        self.inp_tenant.setPlaceholderText("Directory (Tenant) ID (e.g. 8a7b6c5d-...)")
+        form.addRow("Tenant ID:", self.inp_tenant)
+
+        self.inp_cid = QLineEdit()
+        self.inp_cid.setPlaceholderText("Application (Client) ID (e.g. 1a2b3c4d-...)")
+        form.addRow("Client ID:", self.inp_cid)
+
+        lay.addLayout(form)
+
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setObjectName("btnCancel")
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_save = QPushButton("➕ Save HVE Account")
+        btn_save.clicked.connect(self._validate_and_accept)
+
+        btn_box.addWidget(btn_cancel)
+        btn_box.addWidget(btn_save)
+        lay.addLayout(btn_box)
+
+    def _validate_and_accept(self):
+        if not self.inp_email.text().strip() or '@' not in self.inp_email.text():
+            QMessageBox.warning(self, "Invalid Email", "Please enter a valid HVE sender email.")
+            return
+        if not self.inp_secret.text().strip() or not self.inp_tenant.text().strip() or not self.inp_cid.text().strip():
+            QMessageBox.warning(self, "Missing Credentials", "All 4 fields (Email, Secret, Tenant ID, Client ID) are required for HVE.")
+            return
+        self.accept()
+
+    def get_account_data(self):
+        em = self.inp_email.text().strip()
+        sec = self.inp_secret.text().strip()
+        ten = self.inp_tenant.text().strip()
+        cid = self.inp_cid.text().strip()
+        return em, sec, f"hve:{ten}", cid
+
+
+class SMTPTestWorker(QThread):
+    sig_progress = Signal(int, int, str, str, bool)   # cur, total, email, status, is_ok
+    sig_log = Signal(str)                             # formatted log text
+    sig_finished = Signal(int, int, int)              # valid_cnt, invalid_cnt, total
+
+    def __init__(self, db: Database, accounts: list, parent=None):
+        super().__init__(parent)
+        self.db = db
+        self.accounts = accounts
+        self._is_stopped = False
+
+    def stop(self):
+        self._is_stopped = True
+
+    def run(self):
+        from graph.auth import GraphAuth
+        from backend.hve_sender import HVESender
+        import re
+
+        total = len(self.accounts)
+        valid_cnt = 0
+        invalid_cnt = 0
+
+        self.sig_log.emit(f"🔍 Testing {total} accounts against Microsoft in background...")
+
+        for idx, acc in enumerate(self.accounts, 1):
+            if self._is_stopped:
+                self.sig_log.emit("⏹️ Verification stopped by user.")
+                break
+
+            email = acc.get('email', '')
+            token_val = (acc.get('token') or '').strip()
+            client_id = acc.get('client_id', '') or "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
+
+            is_uuid_tenant = bool(re.match(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", token_val))
+            is_hve = is_uuid_tenant or token_val.lower().startswith("hve:")
+
+            is_ok = False
+            reason = ""
+            try:
+                if is_hve:
+                    tenant_id = token_val.replace("hve:", "").strip()
+                    secret = acc.get('password', '')
+                    t = HVESender.get_access_token(tenant_id, client_id, secret)
+                    is_ok = bool(t)
+                    if not is_ok:
+                        reason = "HVE auth failed"
+                elif token_val and len(token_val) > 20:
+                    auth = GraphAuth(client_id=client_id)
+                    res = auth.refresh_access_token(token_val)
+                    if res and "access_token" in res:
+                        is_ok = True
+                        new_tok = res.get('refresh_token', token_val)
+                        if new_tok and new_tok != token_val:
+                            self.db.update_smtp_token(email, new_tok)
+                    else:
+                        reason = "Account flagged (abuse mode) or token expired"
+                else:
+                    is_ok = False
+                    reason = "No OAuth token"
+            except Exception as e:
+                is_ok = False
+                err_str = str(e)
+                if "abuse" in err_str.lower():
+                    reason = "Flagged by Microsoft: Abuse mode"
+                else:
+                    reason = f"Error: {err_str[:30]}"
+
+            if is_ok:
+                self.db.update_smtp_status(email, 'ready')
+                valid_cnt += 1
+                self.sig_log.emit(f"[{idx}/{total}] 🟢 {email} → Active & Ready")
+                self.sig_progress.emit(idx, total, email, "ready", True)
+            else:
+                self.db.update_smtp_status(email, 'expired')
+                invalid_cnt += 1
+                disp_reason = f" ({reason})" if reason else ""
+                self.sig_log.emit(f"[{idx}/{total}] 🔴 {email} → Inactive{disp_reason}")
+                self.sig_progress.emit(idx, total, email, "expired", False)
+
+        self.sig_finished.emit(valid_cnt, invalid_cnt, total)
 
 
 class HtmlPreviewDialog(QDialog):
@@ -301,6 +599,7 @@ class TaskPanel(QWidget):
         self.task_id = task_id
         self.db = db
         self.worker: TaskWorker = None
+        self._smtp_tester: SMTPTestWorker = None
         self.enabled = True
         self.sent_count = 0
         self.fail_count = 0
@@ -336,7 +635,7 @@ class TaskPanel(QWidget):
         self.sub_tabs.setStyleSheet(SHARED_SS)
         self.sub_tabs.setMinimumWidth(560)
         self.sub_tabs.addTab(self._tab_recipients(), "📨 Recipients")
-        self.sub_tabs.addTab(self._tab_smtp(),       "📧 SMTP")
+        self.sub_tabs.addTab(self._tab_smtp(),       "📧 SMTP / Provider")
         self.sub_tabs.addTab(self._tab_tags(),       "🏷 Tags")
         self.sub_tabs.addTab(self._tab_content(),    "📝 Content")
         self.sub_tabs.addTab(self._tab_delays(),     "⚙ Delays & Limits")
@@ -532,51 +831,232 @@ class TaskPanel(QWidget):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(10)
 
-        # Interactive OAuth Login
-        g_oauth = QGroupBox("Microsoft 365 OAuth Login")
-        gl_oauth = QHBoxLayout()
-        b_oauth = QPushButton("🔑 Link Microsoft Account"); b_oauth.setStyleSheet(BTN("#5865f2", "#4752c4"))
-        b_oauth.clicked.connect(self._interactive_microsoft_login)
-        gl_oauth.addWidget(b_oauth)
-        gl_oauth.addStretch()
-        g_oauth.setLayout(gl_oauth); lay.addWidget(g_oauth)
+        # ── Sender & Transport Group (matching screenshot) ──
+        g_transport = QGroupBox("Sender & Transport")
+        gt_lay = QVBoxLayout()
+        gt_lay.setSpacing(8)
 
-        # Single SMTP
-        g1 = QGroupBox("Single SMTP  —  Paste one account line to test")
-        gl1 = QVBoxLayout()
-        gl1.addWidget(QLabel("Format:  email | password | token | client_id"))
+        # Row 0: Sender name (as in screenshots 1, 3, 5)
+        r0 = QHBoxLayout()
+        lbl_sname = QLabel("Sender name")
+        lbl_sname.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600; min-width:85px;")
+        self.inp_transport_sender = QLineEdit()
+        self.inp_transport_sender.setStyleSheet("QLineEdit { background:#1e1f29; color:#ffffff; border:1px solid #3d3f52; border-radius:5px; padding:5px 8px; }")
+        self.inp_transport_sender.textChanged.connect(self._sync_transport_sender)
+
+        btn_snd_default = QPushButton("Default")
+        btn_snd_default.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        btn_snd_default.clicked.connect(self._set_sender_default)
+
+        btn_snd_load = QPushButton("Load")
+        btn_snd_load.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        btn_snd_load.clicked.connect(self._load_sender_names_file)
+
+        self.lbl_snd_default_status = QLabel("Default sender")
+        self.lbl_snd_default_status.setStyleSheet("color:#7880a0; font-size:11px;")
+
+        r0.addWidget(lbl_sname)
+        r0.addWidget(self.inp_transport_sender, 2)
+        r0.addWidget(btn_snd_default)
+        r0.addWidget(btn_snd_load)
+        r0.addSpacing(15)
+        r0.addWidget(self.lbl_snd_default_status)
+        r0.addStretch()
+        gt_lay.addLayout(r0)
+
+        # Row 0b: Subject & Subject Pool (as in screenshots 1, 3, 5)
+        r0b = QHBoxLayout()
+        lbl_subj = QLabel("Subject")
+        lbl_subj.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600; min-width:85px;")
+        self.inp_transport_subject = QLineEdit()
+        self.inp_transport_subject.setPlaceholderText("Confirmation Needed: Changes to [#EMAIL#] Account Status")
+        self.inp_transport_subject.setStyleSheet("QLineEdit { background:#1e1f29; color:#ffffff; border:1px solid #3d3f52; border-radius:5px; padding:5px 8px; }")
+        self.inp_transport_subject.textChanged.connect(self._sync_transport_subject)
+
+        btn_subj_load = QPushButton("Load")
+        btn_subj_load.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        btn_subj_load.clicked.connect(self._load_subjects_csv)
+
+        btn_subj_clear = QPushButton("Clear")
+        btn_subj_clear.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        btn_subj_clear.clicked.connect(self._clear_transport_subject)
+
+        r0b.addWidget(lbl_subj)
+        r0b.addWidget(self.inp_transport_subject, 2)
+        r0b.addWidget(btn_subj_load)
+        r0b.addWidget(btn_subj_clear)
+        r0b.addStretch()
+        gt_lay.addLayout(r0b)
+
+        self.lbl_subj_pool = QLabel("Subject pool: 0 loaded")
+        self.lbl_subj_pool.setStyleSheet("color:#7880a0; font-size:11px; padding-left:90px;")
+        gt_lay.addWidget(self.lbl_subj_pool)
+
+        # Row 1: Provider & Username
+        r1 = QHBoxLayout()
+        lbl_p = QLabel("Provider:")
+        lbl_p.setStyleSheet("color:#ffffff; font-weight:700; font-size:12px; min-width:85px;")
+
+        self.cmb_provider = QComboBox()
+        self.cmb_provider.addItems([
+            "OAuthOutlook",
+            "Office365 SMTP OAuth",
+            "HVE SMTP OAuth",
+        ])
+        self.cmb_provider.setStyleSheet(
+            "QComboBox { background:#1e1f29; color:#ffffff; border:1px solid #3d3f52; border-radius:5px; padding:6px 12px; font-weight:600; min-width:180px; }"
+            "QComboBox::drop-down { border:none; }"
+            "QComboBox QAbstractItemView { background:#252736; color:#ffffff; selection-background-color:#5865f2; selection-color:#ffffff; }"
+        )
+        self.cmb_provider.currentTextChanged.connect(self._on_provider_changed)
+
+        lbl_usr = QLabel("SMTP email / username:")
+        lbl_usr.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
+        self.inp_smtp_user = QLineEdit()
+        self.inp_smtp_user.setPlaceholderText("smtp-id@smtp-brevo.com")
+        self.inp_smtp_user.setStyleSheet("QLineEdit { background:#1e1f29; color:#ffffff; border:1px solid #3d3f52; border-radius:5px; padding:5px 8px; }")
+
+        r1.addWidget(lbl_p)
+        r1.addWidget(self.cmb_provider)
+        r1.addSpacing(15)
+        r1.addWidget(lbl_usr)
+        r1.addWidget(self.inp_smtp_user)
+        gt_lay.addLayout(r1)
+
+        # Row 2: Server & Port
+        r2 = QHBoxLayout()
+        lbl_srv = QLabel("Server:")
+        lbl_srv.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600; min-width:85px;")
+        self.inp_smtp_server = QLineEdit("smtp.office365.com")
+        self.inp_smtp_server.setStyleSheet("QLineEdit { background:#1e1f29; color:#ffffff; border:1px solid #3d3f52; border-radius:5px; padding:5px 8px; }")
+
+        lbl_prt = QLabel("Port:")
+        lbl_prt.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
+        self.inp_smtp_port = QLineEdit("587")
+        self.inp_smtp_port.setFixedWidth(70)
+        self.inp_smtp_port.setStyleSheet("QLineEdit { background:#1e1f29; color:#ffffff; border:1px solid #3d3f52; border-radius:5px; padding:5px 8px; text-align:center; }")
+
+        r2.addWidget(lbl_srv)
+        r2.addWidget(self.inp_smtp_server)
+        r2.addSpacing(15)
+        r2.addWidget(lbl_prt)
+        r2.addWidget(self.inp_smtp_port)
+        gt_lay.addLayout(r2)
+
+        # Row 3: Password / API
+        r3 = QHBoxLayout()
+        lbl_pwd = QLabel("Password/API:")
+        lbl_pwd.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600; min-width:85px;")
+        self.inp_smtp_pass = QLineEdit()
+        self.inp_smtp_pass.setEchoMode(QLineEdit.Password)
+        self.inp_smtp_pass.setPlaceholderText("Password, API key, or Client Secret")
+        self.inp_smtp_pass.setStyleSheet("QLineEdit { background:#1e1f29; color:#ffffff; border:1px solid #3d3f52; border-radius:5px; padding:5px 8px; }")
+        r3.addWidget(lbl_pwd)
+        r3.addWidget(self.inp_smtp_pass)
+        gt_lay.addLayout(r3)
+
+        # Row 4: Status / Info label (blue text, exact match to screenshot)
+        self.lbl_provider_info = QLabel("Office 365 SMTP AUTH uses smtp.office365.com:587 with XOAUTH2.")
+        self.lbl_provider_info.setStyleSheet("color:#5865f2; font-size:11px; font-weight:600; padding:2px 0;")
+        gt_lay.addWidget(self.lbl_provider_info)
+
+        # Row 4b: Gmail API status & Load JSON (as seen in screenshots 1, 2, 3, 4)
+        r_gmail = QHBoxLayout()
+        self.lbl_gmail_status = QLabel("Gmail API off")
+        self.lbl_gmail_status.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
+        self.btn_load_gmail = QPushButton("Load Gmail JSON")
+        self.btn_load_gmail.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        self.btn_load_gmail.clicked.connect(self._load_gmail_json)
+        r_gmail.addWidget(self.lbl_gmail_status)
+        r_gmail.addStretch()
+        r_gmail.addWidget(self.btn_load_gmail)
+        gt_lay.addLayout(r_gmail)
+
+        # Row 5: Action buttons (matching screenshot)
+        r_btn1 = QHBoxLayout()
+        lbl_mode_tag = QLabel(">> Graph API / Office 365 SMTP / HVE SMTP OAuth")
+        lbl_mode_tag.setStyleSheet("color:#5865f2; font-weight:700; font-size:11px; padding:4px 8px; border:1px solid #5865f2; border-radius:4px;")
+        r_btn1.addWidget(lbl_mode_tag)
+
+        b_add = QPushButton("+ Add")
+        b_add.setStyleSheet(BTN("#43b581", "#369e6b"))
+        b_add.clicked.connect(self._add_transport_account)
+
+        b_paste = QPushButton("Paste")
+        b_paste.setStyleSheet(BTN("#4752c4", "#3a47a0"))
+        b_paste.clicked.connect(self._paste_bulk_smtp)
+
+        b_hve = QPushButton("+ HVE")
+        b_hve.setStyleSheet(BTN("#00b894", "#009874"))
+        b_hve.clicked.connect(self._add_hve_quick)
+
+        b_load_hve = QPushButton("Load HVE OAuth")
+        b_load_hve.setStyleSheet(BTN("#0984e3", "#076cb9"))
+        b_load_hve.clicked.connect(self._load_hve_oauth)
+
+        b_load_xlsx = QPushButton("Load OAuth XLSX")
+        b_load_xlsx.setStyleSheet(BTN("#5865f2", "#4752c4"))
+        b_load_xlsx.clicked.connect(self._load_oauth_xlsx)
+
+        r_btn1.addWidget(b_add)
+        r_btn1.addWidget(b_paste)
+        r_btn1.addWidget(b_hve)
+        r_btn1.addWidget(b_load_hve)
+        r_btn1.addWidget(b_load_xlsx)
+        r_btn1.addStretch()
+        gt_lay.addLayout(r_btn1)
+
+        # Row 6: Second Action Buttons Row (matching screenshot)
+        r_btn2 = QHBoxLayout()
+        b_load_csv = QPushButton("Load SMTP CSV")
+        b_load_csv.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_load_csv.clicked.connect(self._load_smtp_csv)
+
+        b_load_creds = QPushButton("Load Outlook Creds")
+        b_load_creds.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_load_creds.clicked.connect(self._load_outlook_creds)
+
+        self.b_test_smtp = QPushButton("Test SMTP")
+        self.b_test_smtp.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        self.b_test_smtp.clicked.connect(self.test_smtp)
+
+        b_bounce = QPushButton("Check Bounce")
+        b_bounce.setStyleSheet(BTN("#3d3f52", "#52546e"))
+        b_bounce.clicked.connect(self._check_bounce_info)
+
+        b_clear = QPushButton("Clear All")
+        b_clear.setStyleSheet(BTN("#ed4245", "#c93638"))
+        b_clear.clicked.connect(self._clear_smtp)
+
+        r_btn2.addWidget(b_load_csv)
+        r_btn2.addWidget(b_load_creds)
+        r_btn2.addWidget(self.b_test_smtp)
+        r_btn2.addWidget(b_bounce)
+        r_btn2.addWidget(b_clear)
+        r_btn2.addStretch()
+        gt_lay.addLayout(r_btn2)
+
+        g_transport.setLayout(gt_lay)
+        lay.addWidget(g_transport)
+
+        # Single SMTP text edit hidden/fallback attribute
         self.txt_single_smtp = QTextEdit()
-        self.txt_single_smtp.setPlaceholderText(
-            "lxao5455@outlook.com|jnhg8221|M.C503_BAY...|9e5f94bc-e8a4-4e73-b8be-63364c29d753")
-        self.txt_single_smtp.setFixedHeight(80)
-        gl1.addWidget(self.txt_single_smtp)
-        b1 = QPushButton("➕ Add This SMTP"); b1.setStyleSheet(BTN("#43b581", "#369e6b"))
-        b1.clicked.connect(self._add_single_smtp)
-        gl1.addWidget(b1)
-        g1.setLayout(gl1); lay.addWidget(g1)
+        self.txt_single_smtp.setFixedHeight(60)
+        self.txt_single_smtp.setPlaceholderText("Format: email | password | token | client_id")
+        self.txt_single_smtp.setVisible(False)
+        lay.addWidget(self.txt_single_smtp)
 
-        # Bulk load
-        g2 = QGroupBox("Bulk SMTP Load")
-        gl2 = QHBoxLayout()
-        b_csv = QPushButton("📂 CSV / Excel"); b_csv.setStyleSheet(BTN("#5865f2", "#4752c4"))
-        b_csv.clicked.connect(self._load_smtp_csv)
-        b_pst = QPushButton("📋 Paste Bulk");  b_pst.setStyleSheet(BTN("#4752c4", "#3a47a0"))
-        b_pst.clicked.connect(self._paste_bulk_smtp)
-        b_clr = QPushButton("🗑 Clear All SMTP"); b_clr.setStyleSheet(BTN("#ed4245", "#c93638"))
-        b_clr.clicked.connect(self._clear_smtp)
-        gl2.addWidget(b_csv); gl2.addWidget(b_pst); gl2.addWidget(b_clr); gl2.addStretch()
-        g2.setLayout(gl2); lay.addWidget(g2)
-
-        self.lbl_smtp_count = QLabel("0 SMTP accounts loaded")
+        self.lbl_smtp_count = QLabel("0 Office 365 SMTP OAuth acct(s) loaded")
         self.lbl_smtp_count.setStyleSheet("color:#43b581; font-size:12px; font-weight:700;")
         lay.addWidget(self.lbl_smtp_count)
 
         self.smtp_list = QListWidget()
-        self.smtp_list.setMinimumHeight(200)
+        self.smtp_list.setMinimumHeight(220)
         lay.addWidget(self.smtp_list)
         lay.addStretch()
 
         root_lay.addWidget(_scroll_wrap(inner), 1)
+        self._on_provider_changed(self.cmb_provider.currentText())
         self.refresh_smtp_list()
         return outer
 
@@ -1340,37 +1820,42 @@ class TaskPanel(QWidget):
 
     def _load_smtp_csv(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load SMTP CSV/Excel", "", "CSV/Excel (*.csv *.xlsx *.xls)")
+            self, "Load SMTP CSV/Excel", "", "CSV / Excel / Text (*.csv *.xlsx *.xls *.txt);;All Files (*)")
         if not path:
             return
         rows = self._read_csv_or_excel(path)
-        added = 0
-        for row in rows:
-            if len(row) == 1 and '|' in row[0]:
-                row = [r.strip() for r in row[0].split('|')]
-            if len(row) >= 4:
-                self.db.add_smtp_account(row[0], row[1], row[2], row[3])
-                added += 1
-        self.refresh_smtp_list()
-        self._log(f"✅ Added {added} SMTP accounts from file")
+        to_add = []
+        for r in rows:
+            entry = _parse_account_entry(r)
+            if entry:
+                to_add.append(entry)
+        if to_add:
+            added = self.db.add_smtp_accounts_bulk(to_add)
+            self.refresh_smtp_list()
+            self._log(f"✅ Added {added} SMTP account(s) from {Path(path).name}")
+            QMessageBox.information(self, "Success", f"Successfully loaded {added} SMTP account(s) from:\n{Path(path).name}")
+        else:
+            QMessageBox.warning(self, "No Accounts", f"Could not parse valid accounts from {Path(path).name}")
 
     def _paste_bulk_smtp(self):
         dlg = PasteDialog(
             "Paste SMTP Accounts",
             "Format (one per line):  email | password | token | client_id\n"
-            "Example:  user@outlook.com|pass123|M.C503_BAY...|9e5f94bc-…",
+            "Example:  user@outlook.com|pass123|M.C503_BAY...|9e5f94bc-…\n"
+            "(Also supports email:password or comma-separated lines)",
             self
         )
         if dlg.exec() == QDialog.Accepted:
             raw = dlg.get_text()
-            added = 0
+            to_add = []
             for line in raw.split('\n'):
-                parts = line.strip().split('|')
-                if len(parts) >= 4:
-                    self.db.add_smtp_account(parts[0], parts[1], parts[2], parts[3])
-                    added += 1
-            self.refresh_smtp_list()
-            self._log(f"✅ Added {added} SMTP accounts from paste")
+                entry = _parse_account_entry(line)
+                if entry:
+                    to_add.append(entry)
+            if to_add:
+                added = self.db.add_smtp_accounts_bulk(to_add)
+                self.refresh_smtp_list()
+                self._log(f"✅ Added {added} SMTP account(s) from paste")
 
     def _clear_smtp(self):
         if QMessageBox.question(
@@ -1380,6 +1865,101 @@ class TaskPanel(QWidget):
             self.refresh_smtp_list()
             self._log("🗑 All SMTP accounts cleared")
 
+    def _sync_transport_sender(self, text: str):
+        if hasattr(self, 'lbl_snd_default_status'):
+            if text.strip():
+                self.lbl_snd_default_status.setText("Custom sender")
+                if hasattr(self, 'chk_default_sender'):
+                    self.chk_default_sender.setChecked(False)
+                if hasattr(self, 'txt_senders'):
+                    self.txt_senders.setPlainText(text.strip())
+            else:
+                self.lbl_snd_default_status.setText("Default sender")
+                if hasattr(self, 'chk_default_sender'):
+                    self.chk_default_sender.setChecked(True)
+
+    def _set_sender_default(self):
+        if hasattr(self, 'inp_transport_sender'):
+            self.inp_transport_sender.clear()
+        if hasattr(self, 'lbl_snd_default_status'):
+            self.lbl_snd_default_status.setText("Default sender")
+        if hasattr(self, 'chk_default_sender'):
+            self.chk_default_sender.setChecked(True)
+
+    def _load_sender_names_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load Sender Names", "", "Text Files (*.txt);;CSV Files (*.csv);;All Files (*)")
+        if not path:
+            return
+        try:
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = [l.strip() for l in f if l.strip()]
+            if lines:
+                self.inp_transport_sender.setText(lines[0])
+                if hasattr(self, 'txt_senders'):
+                    self.txt_senders.setPlainText("\n".join(lines))
+                self._log(f"✅ Loaded {len(lines)} sender name(s)")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load sender names: {e}")
+
+    def _sync_transport_subject(self, text: str):
+        if hasattr(self, 'txt_subjects'):
+            current_lines = [l for l in self.txt_subjects.toPlainText().split('\n') if l.strip()]
+            if len(current_lines) <= 1:
+                self.txt_subjects.blockSignals(True)
+                self.txt_subjects.setPlainText(text)
+                self.txt_subjects.blockSignals(False)
+            if hasattr(self, 'lbl_subj_pool'):
+                cnt = 1 if text.strip() else 0
+                self.lbl_subj_pool.setText(f"Subject pool: {cnt} loaded")
+
+    def _clear_transport_subject(self):
+        if hasattr(self, 'inp_transport_subject'):
+            self.inp_transport_subject.clear()
+        if hasattr(self, 'txt_subjects'):
+            self.txt_subjects.clear()
+        if hasattr(self, 'lbl_subj_pool'):
+            self.lbl_subj_pool.setText("Subject pool: 0 loaded")
+
+    def _load_gmail_json(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load Gmail JSON Credentials", "", "JSON Files (*.json);;All Files (*)")
+        if not path:
+            return
+        try:
+            import json
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if hasattr(self, 'lbl_gmail_status'):
+                self.lbl_gmail_status.setText("Gmail API on")
+                self.lbl_gmail_status.setStyleSheet("color:#43b581; font-size:11px; font-weight:700;")
+            self._log(f"✅ Loaded Gmail JSON credentials: {os.path.basename(path)}")
+            QMessageBox.information(self, "Gmail API", f"Gmail API credentials loaded successfully from:\n{path}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not read Gmail JSON file: {e}")
+
+    def _on_provider_changed(self, text: str):
+        if text == "OAuthOutlook":
+            if hasattr(self, 'inp_smtp_server'):
+                self.inp_smtp_server.setText("smtp.office365.com")
+            if hasattr(self, 'inp_smtp_port'):
+                self.inp_smtp_port.setText("587")
+            if hasattr(self, 'lbl_provider_info'):
+                self.lbl_provider_info.setText("Office 365 SMTP AUTH uses smtp.office365.com:587 with XOAUTH2.")
+        elif text == "Office365 SMTP OAuth":
+            if hasattr(self, 'inp_smtp_server'):
+                self.inp_smtp_server.setText("smtp.office365.com")
+            if hasattr(self, 'inp_smtp_port'):
+                self.inp_smtp_port.setText("587")
+            if hasattr(self, 'lbl_provider_info'):
+                self.lbl_provider_info.setText("Office 365 SMTP AUTH uses smtp.office365.com:587 with XOAUTH2.")
+        elif text == "HVE SMTP OAuth":
+            if hasattr(self, 'inp_smtp_server'):
+                self.inp_smtp_server.setText("smtp.hve.mx.microsoft")
+            if hasattr(self, 'inp_smtp_port'):
+                self.inp_smtp_port.setText("587")
+            if hasattr(self, 'lbl_provider_info'):
+                self.lbl_provider_info.setText("Office 365 SMTP AUTH uses smtp.office365.com:587 with XOAUTH2.")
+        self.refresh_smtp_list()
+
     def refresh_smtp_list(self):
         self.smtp_list.clear()
         accounts = self.db.get_smtp_accounts()
@@ -1387,22 +1967,184 @@ class TaskPanel(QWidget):
             icon = "🟢" if acc['status'] == 'ready' else "🔴"
             self.smtp_list.addItem(
                 f"{icon}  {acc['email']}    sent:{acc['emails_sent']}    [{acc['status']}]")
-        self.lbl_smtp_count.setText(f"{len(accounts)} SMTP accounts loaded")
+        
+        provider = self.cmb_provider.currentText() if hasattr(self, 'cmb_provider') else "OAuthOutlook"
+        if provider == "OAuthOutlook":
+            self.lbl_smtp_count.setText(f"{len(accounts)} Graph API acct(s) loaded")
+        elif provider == "HVE SMTP OAuth":
+            self.lbl_smtp_count.setText(f"{len(accounts)} HVE SMTP OAuth acct(s) loaded")
+        else:
+            self.lbl_smtp_count.setText(f"{len(accounts)} Office 365 SMTP OAuth acct(s) loaded")
+
+    def _add_transport_account(self):
+        default_em = self.inp_smtp_user.text().strip() if hasattr(self, 'inp_smtp_user') else ""
+        default_pw = self.inp_smtp_pass.text().strip() if hasattr(self, 'inp_smtp_pass') else ""
+        dlg = AddAccountDialog(default_email=default_em, default_pass=default_pw, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            accs = dlg.get_accounts()
+            if accs:
+                added = self.db.add_smtp_accounts_bulk(accs)
+                self.refresh_smtp_list()
+                self._log(f"✅ Added {added} transport account(s) successfully")
+                if len(accs) == 1:
+                    QMessageBox.information(self, "Account Added", f"Successfully added account:\n{accs[0][0]}")
+
+    def _load_oauth_xlsx(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load OAuth XLSX / CSV", "", "Excel / CSV / Text Files (*.xlsx *.xls *.csv *.txt);;All Files (*)")
+        if not path:
+            return
+        rows = self._read_csv_or_excel(path)
+        to_add = []
+        for r in rows:
+            entry = _parse_account_entry(r)
+            if entry:
+                to_add.append(entry)
+        if to_add:
+            added = self.db.add_smtp_accounts_bulk(to_add)
+            self.refresh_smtp_list()
+            provider = self.cmb_provider.currentText() if hasattr(self, 'cmb_provider') else "OAuthOutlook"
+            label_type = "Graph API" if provider == "OAuthOutlook" else provider
+            self._log(f"[Task {self.task_id}] Loaded {added} {label_type} account(s) from {Path(path).name}")
+            QMessageBox.information(self, "Success", f"Successfully loaded {added} {label_type} account(s) from:\n{Path(path).name}")
+        else:
+            QMessageBox.warning(self, "No Accounts", f"Could not parse valid accounts from {Path(path).name}")
+
+    def _load_outlook_creds(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Outlook Credentials", "", "All Supported (*.xlsx *.xls *.csv *.txt);;Excel Files (*.xlsx *.xls);;CSV Files (*.csv);;Text Files (*.txt);;All Files (*)")
+        if not path:
+            return
+        rows = self._read_csv_or_excel(path)
+        to_add = []
+        for r in rows:
+            entry = _parse_account_entry(r)
+            if entry:
+                to_add.append(entry)
+        if to_add:
+            added = self.db.add_smtp_accounts_bulk(to_add)
+            self.refresh_smtp_list()
+            self._log(f"✅ Loaded {added} Outlook account(s) from {Path(path).name}")
+            QMessageBox.information(self, "Success", f"Successfully loaded {added} Outlook account(s) from:\n{Path(path).name}")
+        else:
+            QMessageBox.warning(self, "No Accounts", f"Could not parse valid Outlook credentials from {Path(path).name}")
+
+    def _load_hve_oauth(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load HVE OAuth Accounts", "", "Excel / Text / CSV (*.xlsx *.txt *.csv *.xls);;All Files (*)")
+        if not path:
+            return
+        rows = self._read_csv_or_excel(path)
+        to_add = []
+        for r in rows:
+            entry = _parse_account_entry(r)
+            if entry:
+                em, pw, tok, cid = entry
+                if not tok.lower().startswith("hve:"):
+                    tok = f"hve:{tok}"
+                to_add.append((em, pw, tok, cid))
+        if to_add:
+            added = self.db.add_smtp_accounts_bulk(to_add)
+            self.refresh_smtp_list()
+            self._log(f"✅ Loaded {added} HVE account(s) from {Path(path).name}")
+            QMessageBox.information(self, "Success", f"Successfully loaded {added} HVE account(s) from:\n{Path(path).name}")
+        else:
+            QMessageBox.warning(self, "No Accounts", f"Could not parse valid HVE accounts from {Path(path).name}")
+
+    def _add_hve_quick(self):
+        default_em = self.inp_smtp_user.text().strip() if hasattr(self, 'inp_smtp_user') else ""
+        default_sec = self.inp_smtp_pass.text().strip() if hasattr(self, 'inp_smtp_pass') else ""
+        dlg = HVEDialog(default_email=default_em, default_secret=default_sec, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            em, sec, tok, cid = dlg.get_account_data()
+            self.db.add_smtp_account(em, sec, tok, cid)
+            self.refresh_smtp_list()
+            self._log(f"✅ Added HVE account: {em}")
+            QMessageBox.information(self, "HVE Account Added", f"Successfully configured HVE account:\n{em}")
+
+    def _check_bounce_info(self):
+        failed_recipients = self.db.get_recipients('failed')
+        bounced_cnt = len(failed_recipients)
+        total_recipients = len(self.db.get_all_recipients())
+        
+        if bounced_cnt == 0:
+            self._log("ℹ️ Bounce Check: 0 bounced / failed recipients in queue.")
+            QMessageBox.information(
+                self, "Bounce Check",
+                f"✅ Clean Queue!\n\nTotal Recipients: {total_recipients}\nBounced / Failed: 0\n\nBounce suppression is active."
+            )
+        else:
+            self._log(f"⚠️ Bounce Check: Found {bounced_cnt} bounced / failed recipients.")
+            ret = QMessageBox.question(
+                self, "Bounced Recipients Found",
+                f"Found {bounced_cnt} bounced / failed recipient(s) out of {total_recipients}.\n\n"
+                f"Would you like to automatically purge/suppress these bounced addresses from the queue?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if ret == QMessageBox.Yes:
+                for r in failed_recipients:
+                    self.db.delete_recipient(r['id'])
+                self.refresh_recipient_count()
+                self._log(f"🧹 Purged {bounced_cnt} bounced recipients from database.")
+                QMessageBox.information(self, "Purged", f"Successfully removed {bounced_cnt} bounced recipients.")
 
     def test_smtp(self):
-        accounts = self.db.get_smtp_accounts(status='ready')
-        self._log(f"🔍 SMTP test: {len(accounts)} ready accounts found")
+        if hasattr(self, '_smtp_tester') and self._smtp_tester and self._smtp_tester.isRunning():
+            self._smtp_tester.stop()
+            self._log("⏹️ Stopping SMTP verification...")
+            if hasattr(self, 'b_test_smtp'):
+                self.b_test_smtp.setText("Test SMTP")
+            return
+
+        accounts = self.db.get_smtp_accounts()
         if not accounts:
-            QMessageBox.warning(self, "No SMTP", "No ready SMTP accounts in database.")
+            QMessageBox.warning(self, "No Accounts", "No accounts loaded in database.")
+            return
+
+        if hasattr(self, 'b_test_smtp'):
+            self.b_test_smtp.setText("⏹ Stop Test")
+
+        self._smtp_tester = SMTPTestWorker(self.db, accounts, self)
+        self._smtp_tester.sig_log.connect(self._log)
+        self._smtp_tester.sig_progress.connect(self._on_smtp_test_progress)
+        self._smtp_tester.sig_finished.connect(self._on_smtp_test_finished)
+        self._smtp_tester.start()
+
+    def _on_smtp_test_progress(self, cur, total, email, status, is_ok):
+        icon = "🟢" if is_ok else "🔴"
+        for i in range(self.smtp_list.count()):
+            item = self.smtp_list.item(i)
+            if email in item.text():
+                import re
+                sent_match = re.search(r"sent:(\d+)", item.text())
+                sent_val = sent_match.group(1) if sent_match else "0"
+                item.setText(f"{icon}  {email}    sent:{sent_val}    [{status}]")
+                if not is_ok:
+                    item.setForeground(Qt.gray)
+                else:
+                    item.setForeground(Qt.white)
+                break
+
+    def _on_smtp_test_finished(self, valid_cnt, invalid_cnt, total):
+        if hasattr(self, 'b_test_smtp'):
+            self.b_test_smtp.setText("Test SMTP")
+        self.refresh_smtp_list()
+        self._log(f"✅ SMTP Test Complete: {valid_cnt} active/ready, {invalid_cnt} inactive/flagged.")
+        msg = (
+            f"Account Verification Complete!\n\n"
+            f"🟢 Active Accounts: {valid_cnt}\n"
+            f"🔴 Inactive / Microsoft Flagged: {invalid_cnt}\n\n"
+            f"Only the {valid_cnt} active accounts will be used for sending campaigns.\n"
+            f"Inactive accounts have been safely marked [expired] and auto-skipped."
+        )
+        QMessageBox.information(self, "SMTP Verification Results", msg)
 
     def _interactive_microsoft_login(self):
         try:
             self._log("🔑 Initiating interactive Microsoft login...")
             from graph.auth import GraphAuth
             auth = GraphAuth()
-            self._log(f"Configured Client ID: {auth.client_id}")
-            self._log(f"Configured Tenant ID: {auth.tenant_id}")
-            self._log(f"Configured Authority: {auth.authority}")
+            self._log(f"Using Client ID: {auth.client_id}")
             result = auth.acquire_token_interactive()
             if result and "access_token" in result:
                 user_info = auth.get_user_info(result["access_token"])
@@ -1410,7 +2152,7 @@ class TaskPanel(QWidget):
                 if user_info:
                     email = user_info.get("userPrincipalName") or user_info.get("mail") or email
                 
-                client_id = os.getenv("CLIENT_ID", "your_client_id_here")
+                client_id = auth.client_id or "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
                 refresh_token = result.get("refresh_token", result["access_token"])
                 
                 # Save to database
@@ -1840,7 +2582,8 @@ class TaskPanel(QWidget):
         # Clear out any old/stale recipients so ONLY the currently listed recipients are sent
         self.db.clear_recipients()
         self.db.reset_smtp_statuses()
-        added = 0
+        batch = []
+        seen = set()
         for line in self.txt_recipients.toPlainText().split('\n'):
             line = line.strip()
             if not line or '@' not in line:
@@ -1849,17 +2592,20 @@ class TaskPanel(QWidget):
             # Robust extraction: find the actual email address in the line
             email_match = re.search(r'[\w\.\+\-]+@[\w\.\-]+\.[a-zA-Z]{2,}', line)
             if email_match:
-                email = email_match.group(0).strip()
-                # Remaining text on the line is the name, stripping any delimiters (comma, dot, pipe, semicolon)
-                name = line.replace(email, "").strip(" ,|;.\t").strip()
+                email = email_match.group(0).strip().lower()
+                name = line.replace(email_match.group(0), "").strip(" ,|;.\t").strip()
             else:
                 parts = line.split(',')
-                email = parts[0].strip()
+                email = parts[0].strip().lower()
                 name  = parts[1].strip() if len(parts) > 1 else ""
 
-            self.db.add_or_reset_recipient(email, name)
-            added += 1
-        return added
+            if email and email not in seen:
+                seen.add(email)
+                batch.append((email, name))
+
+        if batch:
+            return self.db.add_recipients_bulk(batch)
+        return 0
 
     @staticmethod
     def _format_text_for_email(text: str) -> str:
@@ -1963,6 +2709,12 @@ class TaskPanel(QWidget):
         lines = [l.strip() for l in self.txt_subjects.toPlainText().split('\n') if l.strip()]
         if hasattr(self, 'lbl_subj_count'):
             self.lbl_subj_count.setText(f"{len(lines)} subject(s) loaded")
+        if hasattr(self, 'lbl_subj_pool'):
+            self.lbl_subj_pool.setText(f"Subject pool: {len(lines)} loaded")
+        if hasattr(self, 'inp_transport_subject') and lines and not self.inp_transport_subject.hasFocus():
+            self.inp_transport_subject.blockSignals(True)
+            self.inp_transport_subject.setText(lines[0])
+            self.inp_transport_subject.blockSignals(False)
 
     def _on_bodies_changed(self):
         import re
@@ -2221,7 +2973,13 @@ class TaskPanel(QWidget):
         s(pfx + "img_att_name", self.inp_img_att_name.text().strip())
         s(pfx + "pdf_att_name", self.inp_pdf_att_name.text().strip())
 
-        # Delays
+        # Delays & Transport
+        s(pfx + "provider", self.cmb_provider.currentText() if hasattr(self, 'cmb_provider') else "OAuthOutlook")
+        s(pfx + "smtp_user", self.inp_smtp_user.text().strip() if hasattr(self, 'inp_smtp_user') else "")
+        s(pfx + "smtp_server", self.inp_smtp_server.text().strip() if hasattr(self, 'inp_smtp_server') else "smtp.office365.com")
+        s(pfx + "smtp_port", self.inp_smtp_port.text().strip() if hasattr(self, 'inp_smtp_port') else "587")
+        s(pfx + "transport_sender", self.inp_transport_sender.text().strip() if hasattr(self, 'inp_transport_sender') else "")
+        s(pfx + "transport_subject", self.inp_transport_subject.text().strip() if hasattr(self, 'inp_transport_subject') else "")
         s(pfx + "delay", str(self.spn_delay.value()))
         s(pfx + "smtp_mode", "auto" if self.rb_auto.isChecked() else "limit")
         s(pfx + "limit_per_smtp", str(self.spn_limit.value()))
@@ -2357,6 +3115,19 @@ class TaskPanel(QWidget):
         self.inp_img_att_name.setText(v if v else "")
         v = g(pfx + "pdf_att_name")
         self.inp_pdf_att_name.setText(v if v else "")
+
+        # Sender & Transport
+        v = g(pfx + "provider")
+        if v and hasattr(self, 'cmb_provider'):
+            idx = self.cmb_provider.findText(v)
+            if idx >= 0:
+                self.cmb_provider.setCurrentIndex(idx)
+                self._on_provider_changed(v)
+        v = g(pfx + "smtp_user"); self.inp_smtp_user.setText(v) if (v and hasattr(self, 'inp_smtp_user')) else None
+        v = g(pfx + "smtp_server"); self.inp_smtp_server.setText(v) if (v and hasattr(self, 'inp_smtp_server')) else None
+        v = g(pfx + "smtp_port"); self.inp_smtp_port.setText(v) if (v and hasattr(self, 'inp_smtp_port')) else None
+        v = g(pfx + "transport_sender"); self.inp_transport_sender.setText(v) if (v and hasattr(self, 'inp_transport_sender')) else None
+        v = g(pfx + "transport_subject"); self.inp_transport_subject.setText(v) if (v and hasattr(self, 'inp_transport_subject')) else None
 
         # Delays
         v = g(pfx + "delay")
@@ -2559,12 +3330,16 @@ class TaskPanel(QWidget):
         self._log(f"📋 {added} new recipients added to pool")
 
         subjects = [s.strip() for s in self.txt_subjects.toPlainText().split('\n') if s.strip()]
+        if not subjects and hasattr(self, 'inp_transport_subject') and self.inp_transport_subject.text().strip():
+            subjects = [self.inp_transport_subject.text().strip()]
         if not subjects:
             subjects = ["Hello #NAME#"]
 
         senders = [s.strip() for s in self.txt_senders.toPlainText().split('\n') if s.strip()]
         if self.chk_default_sender.isChecked():
             senders = []
+        elif not senders and hasattr(self, 'inp_transport_sender') and self.inp_transport_sender.text().strip():
+            senders = [self.inp_transport_sender.text().strip()]
 
         addresses = [a.strip() for a in self.txt_addresses.toPlainText().split('\n') if a.strip()]
 
@@ -2590,6 +3365,9 @@ class TaskPanel(QWidget):
             "img_format":         self.cmb_img_format.currentText(),
             "img_att_name":       self.inp_img_att_name.text().strip(),
             "pdf_att_name":       self.inp_pdf_att_name.text().strip(),
+            "provider":           self.cmb_provider.currentText() if hasattr(self, 'cmb_provider') else "OAuthOutlook",
+            "smtp_server":        self.inp_smtp_server.text().strip() if hasattr(self, 'inp_smtp_server') else "smtp.office365.com",
+            "smtp_port":          int(self.inp_smtp_port.text().strip()) if (hasattr(self, 'inp_smtp_port') and self.inp_smtp_port.text().strip().isdigit()) else 587,
         }
 
         self.worker = TaskWorker(self.task_id, config, self.db)
@@ -2884,6 +3662,30 @@ class TaskPanel(QWidget):
 
         # Update visibility
         self._update_content_visibility()
+
+        # Reset Sender & Transport
+        if hasattr(self, 'inp_transport_sender'):
+            self.inp_transport_sender.clear()
+        if hasattr(self, 'lbl_snd_default_status'):
+            self.lbl_snd_default_status.setText("Default sender")
+        if hasattr(self, 'inp_transport_subject'):
+            self.inp_transport_subject.clear()
+        if hasattr(self, 'lbl_subj_pool'):
+            self.lbl_subj_pool.setText("Subject pool: 0 loaded")
+        if hasattr(self, 'cmb_provider'):
+            self.cmb_provider.setCurrentIndex(0)
+            self._on_provider_changed("OAuthOutlook")
+        if hasattr(self, 'inp_smtp_user'):
+            self.inp_smtp_user.clear()
+        if hasattr(self, 'inp_smtp_server'):
+            self.inp_smtp_server.setText("smtp.office365.com")
+        if hasattr(self, 'inp_smtp_port'):
+            self.inp_smtp_port.setText("587")
+        if hasattr(self, 'inp_smtp_pass'):
+            self.inp_smtp_pass.clear()
+        if hasattr(self, 'lbl_gmail_status'):
+            self.lbl_gmail_status.setText("Gmail API off")
+            self.lbl_gmail_status.setStyleSheet("color:#7880a0; font-size:11px; font-weight:600;")
 
         # Delays & Limits Tab
         if hasattr(self, 'spn_delay'):

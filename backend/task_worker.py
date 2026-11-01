@@ -532,6 +532,12 @@ class TaskWorker(QThread):
         mode           = cfg.get('smtp_mode', 'auto')   # 'auto' | 'limit'
         limit_per_smtp = int(cfg.get('limit_per_smtp', 5))
         auto_remove    = bool(cfg.get('auto_remove', True))
+        provider       = cfg.get('provider', 'OAuthOutlook')
+        smtp_server    = cfg.get('smtp_server', 'smtp.office365.com')
+        try:
+            smtp_port  = int(cfg.get('smtp_port', 587))
+        except Exception:
+            smtp_port  = 587
 
         # ── Ensure temp dir for HTMLRenderer ──
         Path("temp").mkdir(exist_ok=True)
@@ -588,7 +594,7 @@ class TaskWorker(QThread):
 
         self.log_message.emit(
             f"[Task {self.task_id}] 🚀 Starting | {len(smtp_accounts)} SMTP · {total} recipients | "
-            f"mode={mode} · delay={delay_s}s"
+            f"provider={provider} ({smtp_server}:{smtp_port}) · mode={mode} · delay={delay_s}s"
         )
 
         recipients_queue = list(recipients)
@@ -1087,7 +1093,43 @@ class TaskWorker(QThread):
                     f'</div>'
                 )
                 final_email_body += unsub_html_footer
-             # ── Exchange Online SMTP (XOAUTH2) with MAPI Headers & Failsafe ──
+
+            # ── 4. BASE64 BODY ENCRYPTION & FINGERPRINTING (ALL MODES) ──
+            # Inject invisible polymorphic salt so every recipient receives a 100% unique Base64 body string
+            import uuid
+            body_salt = f"<!-- b64-uid: {recipient['email']}-{uuid.uuid4().hex[:12]}-{random.randint(1000, 9999)} -->"
+            final_email_body += f"\n{body_salt}"
+
+            raw_body_bytes = final_email_body.encode('utf-8')
+            body_b64 = base64.b64encode(raw_body_bytes).decode('ascii')
+            body_b64_hash = hashlib.sha256(body_b64.encode('ascii')).hexdigest()
+            mode_display = {
+                "body_img": "Body+Img",
+                "body_pdf": "Body+PDF",
+                "body_img_pdf": "Body HTML+PDF",
+                "inline_img": "Inline+Attach",
+                "inline_pdf": "Inline+PDF",
+                "text": "Text Only",
+                "html": "HTML Only",
+            }.get(body_mode, body_mode)
+
+            self.log_message.emit(
+                f"[Task {self.task_id}] Base64 Body ({mode_display}) | "
+                f"recipient={recipient['email']} | "
+                f"bytes={len(raw_body_bytes)} | "
+                f"base64_length={len(body_b64)} | "
+                f"base64_sha256={body_b64_hash}"
+            )
+            try:
+                with open("base64_diagnostic.log", "a", encoding="utf-8") as diag_f:
+                    diag_f.write(
+                        f"[Base64 Body] recipient={recipient['email']} | mode={mode_display} | "
+                        f"bytes={len(raw_body_bytes)} | length={len(body_b64)} | sha256={body_b64_hash}\n"
+                    )
+            except Exception:
+                pass
+
+            # ── Exchange Online SMTP (XOAUTH2) with MAPI Headers & Failsafe ──
             from graph.auth import GraphAuth
             from backend.hve_sender import HVESender
             import re
@@ -1120,19 +1162,12 @@ class TaskWorker(QThread):
                         self.db.update_smtp_token(current_smtp['email'], new_refresh)
                         current_smtp['token'] = new_refresh
             except Exception as e:
-                self.log_message.emit(f"[Task {self.task_id}]  ❌ Auth Error: Failed to acquire token for {current_smtp['email']}: {e}")
-                if mode == 'auto':
-                    self.log_message.emit(f"[Task {self.task_id}]  ⚠ [SWITCH] {current_smtp['email']} → next")
-                    self.db.update_smtp_status(current_smtp['email'], 'error')
-                    current_smtp['status'] = 'error'
-                    smtp_idx += 1
-                    smtp_sent_cnt = 0
-                else:
-                    failed += 1
-                    self.db.update_recipient_status(recipient['id'], 'failed', error_message=f"Auth Failed: {e}")
-                    self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', 401, f"Auth Failed: {e}")
-                    recipients_queue.pop(0)
-                    tpl_idx += 1; subj_idx += 1; sndr_idx += 1
+                self.log_message.emit(f"[Task {self.task_id}]  🔄 [Auto-Failover] {current_smtp['email']} inactive on Microsoft → seamlessly rotating to next sender...")
+                self.db.update_smtp_status(current_smtp['email'], 'expired')
+                current_smtp['status'] = 'expired'
+                smtp_idx += 1
+                smtp_sent_cnt = 0
+                time.sleep(0.3)
                 continue
 
             self.log_message.emit(f"[Task {self.task_id}] 📧 → {recipient['email']} via {current_smtp['email']}")
@@ -1148,10 +1183,18 @@ class TaskWorker(QThread):
             except Exception:
                 pass
 
-            # ── Dispatch Engine ──
-            if is_hve:
-                # Corporate Tenant with SMTP.SendAsApp: Direct Exchange Online SMTP with native MAPI headers
-                engine_label = "Exchange HVE 250 OK"
+            # ── Dispatch Engine based on Provider Selection ──
+            provider = cfg.get('provider', 'OAuthOutlook')
+            smtp_server = cfg.get('smtp_server', 'smtp.office365.com')
+            try:
+                smtp_port = int(cfg.get('smtp_port', 587))
+            except Exception:
+                smtp_port = 587
+
+            if provider == "Office365 SMTP OAuth":
+                # Exchange Online SMTP (Port 587) with AUTH XOAUTH2 & full MAPI headers
+                engine_label = "Office365 SMTP 250 OK"
+                smtp_token = HVESender.get_delegated_smtp_token(current_smtp['client_id'], current_smtp['token']) or access_token
                 result = HVESender.send_email(
                     sender_email=current_smtp['email'],
                     sender_name=sndr_name or "",
@@ -1159,13 +1202,19 @@ class TaskWorker(QThread):
                     to_name=to_name if to_name else (recipient.get('name') or ""),
                     subject=subject,
                     body_html=final_email_body,
-                    access_token=access_token,
+                    access_token=smtp_token,
                     attachments=attachments or None,
                     unsubscribe_email=current_smtp['email'],
                     license_key=lic_key,
+                    preferred_host=smtp_server,
+                    preferred_port=smtp_port,
+                    timeout=30,
                 )
                 if not result.get('success'):
-                    # Failsafe fallback to Graph API if SMTP port is blocked by tenant policy
+                    # Resilient failsafe fallback to Graph API if SMTP port is blocked by tenant policy or STARTTLS unsupported
+                    self.log_message.emit(
+                        f"[Task {self.task_id}]  ⚠️ [SMTP Fallback] {result.get('error_message', 'SMTP failed')[:80]} → trying Exchange MAPI Store..."
+                    )
                     graph_res = graph.send_email(
                         access_token=access_token,
                         to_email=recipient['email'],
@@ -1179,7 +1228,47 @@ class TaskWorker(QThread):
                     if graph_res.get('success'):
                         result = graph_res
                         engine_label = "Exchange MAPI Store"
+
+            elif provider == "HVE SMTP OAuth" or is_hve:
+                # Corporate Tenant with High Volume Email (HVE) bulk endpoint with native MAPI headers
+                engine_label = "Exchange HVE 250 OK"
+                hve_host = smtp_server if "hve" in smtp_server.lower() else "smtp.hve.mx.microsoft"
+                result = HVESender.send_email(
+                    sender_email=current_smtp['email'],
+                    sender_name=sndr_name or "",
+                    to_email=recipient['email'],
+                    to_name=to_name if to_name else (recipient.get('name') or ""),
+                    subject=subject,
+                    body_html=final_email_body,
+                    access_token=access_token,
+                    attachments=attachments or None,
+                    unsubscribe_email=current_smtp['email'],
+                    license_key=lic_key,
+                    preferred_host=hve_host,
+                    preferred_port=smtp_port,
+                    timeout=30,
+                )
+                if not result.get('success'):
+                    # Failsafe fallback to Graph API if HVE gateway not provisioned
+                    self.log_message.emit(
+                        f"[Task {self.task_id}]  ⚠️ [HVE Fallback] {result.get('error_message', 'HVE failed')[:80]} → trying Exchange MAPI Store..."
+                    )
+                    graph_res = graph.send_email(
+                        access_token=access_token,
+                        to_email=recipient['email'],
+                        to_name=to_name,
+                        subject=subject,
+                        body_html=final_email_body,
+                        attachments=attachments or None,
+                        unsubscribe_email=current_smtp['email'],
+                        license_key=lic_key,
+                    )
+                    if graph_res.get('success'):
+                        result = graph_res
+                        engine_label = "Exchange MAPI Store"
+
             else:
+                # Default: "OAuthOutlook"
                 # Standard Graph / Delegated Outlook Accounts: Clean Exchange MAPI Store via Graph API
                 # (Delivers directly to Primary Inbox without failed SMTP handshakes)
                 engine_label = "Exchange MAPI Store"
@@ -1212,10 +1301,25 @@ class TaskWorker(QThread):
                 ec  = result.get('error_code', 0)
                 em  = result.get('error_message', 'Unknown error')
                 
-                # Is it an authentication error or rate limit? (401, 403, 429)
-                is_recipient_err = any(k in em.lower() for k in ("recipient", "not valid", "not resolved", "address", "invalid"))
-                if mode == 'auto' and not is_recipient_err and (graph.is_auth_error(ec) or ec == 429):
-                    self.log_message.emit(f"[Task {self.task_id}]  ❌ Sender Error on send via {current_smtp['email']} HTTP {ec}: {em} (Swapping sender...)")
+                # Check whether this is a sender quota/rate-limit error (e.g. HTTP 429, RefuseQuota, Daily limit)
+                # or a sender authentication error (401, 403, token expired/denied)
+                is_quota_or_rate = (ec == 429) or any(
+                    q in em.lower() for q in ("quota", "limit exceeded", "throttl", "refusequota", "rate limit", "submission quota", "exceeded the maximum")
+                )
+                is_sender_auth = graph.is_auth_error(ec) or any(
+                    a in em.lower() for a in ("unauthorized", "invalid_grant", "token expired", "auth error", "authenticated", "access denied", "tenant")
+                )
+
+                # Genuine recipient address failure (only when it is NOT a sender quota/auth issue)
+                is_recipient_err = not (is_quota_or_rate or is_sender_auth) and any(
+                    k in em.lower() for k in ("recipientnotfound", "invalidrecipients", "badrecipient", "does not exist", "mailbox unavailable", "user unknown", "syntax error in recipient")
+                )
+
+                if (is_quota_or_rate or is_sender_auth) and not is_recipient_err:
+                    self.log_message.emit(
+                        f"[Task {self.task_id}]  ⚠ Sender Quota/Auth Limit on {current_smtp['email']} "
+                        f"(HTTP {ec}: {em[:70]}). Switching to next sender account..."
+                    )
                     self.db.update_smtp_status(current_smtp['email'], 'error')
                     current_smtp['status'] = 'error'
                     smtp_idx += 1
@@ -1232,8 +1336,13 @@ class TaskWorker(QThread):
                     recipients_queue.pop(0)
                     tpl_idx += 1; subj_idx += 1; sndr_idx += 1
 
-            if mode == 'limit' and smtp_sent_cnt >= limit_per_smtp:
-                self.log_message.emit(f"[Task {self.task_id}]  🔄 Limit {limit_per_smtp} reached → next SMTP")
+            # Smart Account Rotation:
+            # In 'limit' mode: rotates after limit_per_smtp.
+            # In 'auto' mode: automatically rotates every 10 emails to prevent single-account hourly throttling!
+            should_rotate = (mode == 'limit' and smtp_sent_cnt >= limit_per_smtp) or (mode == 'auto' and smtp_sent_cnt >= 10)
+            if should_rotate:
+                reason_str = f"Limit {limit_per_smtp}" if mode == 'limit' else "Safety batch (10 emails)"
+                self.log_message.emit(f"[Task {self.task_id}]  🔄 {reason_str} reached on {current_smtp['email']} → rotating to next active sender...")
                 smtp_idx += 1
                 smtp_sent_cnt = 0
 

@@ -98,6 +98,7 @@ class HVESender:
         unsubscribe_email: Optional[str] = None,
         license_key: Optional[str] = None,
         preferred_host: Optional[str] = None,
+        preferred_port: Optional[int] = None,
         timeout: int = 30,
     ) -> Dict:
         """
@@ -131,15 +132,47 @@ class HVESender:
             msg["List-Unsubscribe"] = ", ".join(unsub_parts)
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
-        # Body: multipart/alternative (plain-text fallback + HTML)
+        # Separate inline attachments (e.g. embedded logo referenced by CID in HTML body)
+        # from regular file attachments (e.g. PDF or downloaded files)
+        inline_atts = [att for att in (attachments or []) if att.get("isInline")]
+        regular_atts = [att for att in (attachments or []) if not att.get("isInline")]
+
+        # Body: multipart/alternative (plain-text fallback + HTML) with Base64 encoding
         alt_part = MIMEMultipart("alternative")
         html_part = MIMEText(body_html, "html", "utf-8")
+        if "Content-Transfer-Encoding" in html_part:
+            html_part.replace_header("Content-Transfer-Encoding", "base64")
+        else:
+            html_part.add_header("Content-Transfer-Encoding", "base64")
         alt_part.attach(html_part)
-        msg.attach(alt_part)
 
-        # Process attachments (handles Graph format: name, contentType, contentBytes)
-        if attachments:
-            for att in attachments:
+        if inline_atts:
+            # Wrap HTML + inline images in multipart/related so images display inside body
+            # without appearing in the external attachment tray
+            related_part = MIMEMultipart("related")
+            related_part.attach(alt_part)
+            for att in inline_atts:
+                try:
+                    att_name = att.get("name", "inline_image")
+                    content_bytes_b64 = att.get("contentBytes", "")
+                    content_type = att.get("contentType", "image/png")
+                    cid_str = att.get("contentId", att_name)
+                    raw_data = base64.b64decode(content_bytes_b64)
+
+                    sub_type = content_type.split("/", 1)[1] if "/" in content_type else "png"
+                    part = MIMEImage(raw_data, _subtype=sub_type)
+                    part.add_header("Content-ID", f"<{cid_str}>")
+                    part.add_header("Content-Disposition", f'inline; filename="{att_name}"')
+                    related_part.attach(part)
+                except Exception as e:
+                    logger.warning(f"Failed to attach inline image to HVE message: {e}")
+            msg.attach(related_part)
+        else:
+            msg.attach(alt_part)
+
+        # Process real file attachments (e.g. PDF) in the outer multipart/mixed container
+        if regular_atts:
+            for att in regular_atts:
                 try:
                     att_name = att.get("name", "attachment")
                     content_bytes_b64 = att.get("contentBytes", "")
@@ -175,9 +208,11 @@ class HVESender:
         last_error = "Unknown error"
         last_code = 0
 
+        port_to_use = preferred_port or cls.PORT
+
         for host in hosts_to_try:
             try:
-                server = smtplib.SMTP(host, cls.PORT, timeout=timeout)
+                server = smtplib.SMTP(host, port_to_use, timeout=timeout)
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
