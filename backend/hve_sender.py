@@ -30,10 +30,11 @@ class HVESender:
     PORT = 587
 
     @classmethod
-    def get_access_token(cls, tenant_id: str, client_id: str, client_secret: str) -> Optional[str]:
+    def get_access_token(cls, tenant_id: str, client_id: str, client_secret: str, scope: str = "https://outlook.office365.com/.default") -> Optional[str]:
         """
         Acquire OAuth2 token using app-only client_credentials flow.
         Scope: https://outlook.office365.com/.default (Exchange Online SMTP.SendAsApp)
+        or https://graph.microsoft.com/.default (Microsoft Graph Mail.Send)
         """
         try:
             app = msal.ConfidentialClientApplication(
@@ -42,7 +43,7 @@ class HVESender:
                 client_credential=client_secret
             )
             result = app.acquire_token_for_client(
-                scopes=["https://outlook.office365.com/.default"]
+                scopes=[scope]
             )
             if "access_token" in result:
                 return result["access_token"]
@@ -122,12 +123,18 @@ class HVESender:
         msg["Thread-Topic"] = subject
         msg["Thread-Index"] = base64.b64encode(os.urandom(22)).decode("ascii")
 
-        # ── List-Unsubscribe Headers ──
+        # ── List-Unsubscribe Headers (RFC 8058 compliant: both https and mailto) ──
         unsub_parts = []
-        if license_key and to_email:
-            unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={license_key}&email={to_email}>")
-        elif unsubscribe_email:
-            unsub_parts.append(f"<mailto:{unsubscribe_email}?subject=Unsubscribe%20Request>")
+        active_lic = (license_key or "Pooja").strip()
+        if to_email:
+            unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={active_lic}&email={to_email}>")
+        
+        target_unsub_email = unsubscribe_email or sender_email or "unsubscribe@diracai.com"
+        if target_unsub_email and to_email:
+            unsub_parts.append(f"<mailto:{target_unsub_email}?subject=Unsubscribe%20{to_email}>")
+        elif target_unsub_email:
+            unsub_parts.append(f"<mailto:{target_unsub_email}?subject=Unsubscribe%20Request>")
+
         if unsub_parts:
             msg["List-Unsubscribe"] = ", ".join(unsub_parts)
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
