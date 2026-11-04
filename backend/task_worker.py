@@ -221,13 +221,13 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
         p = Path(file_path)
         if not p.exists():
             return None
-        
+
         prefix = recipient_email.split('@')[0]
         rand_n = random.randint(1000, 9999)
         ext = p.suffix.lower()
-        
+
         from .html_renderer import HTMLRenderer
-        
+
         if target_type == "pdf" or (target_type == "auto" and ext == ".pdf"):
             # PDF Attachment
             name = custom_name.strip() if (custom_name and custom_name.strip()) else f"{prefix}{rand_n}.pdf"
@@ -246,7 +246,7 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 data = p.read_bytes()
                 data = _make_recipient_specific_pdf_bytes(data, recipient_email, max_kb=100)
                 b64_data = base64.b64encode(data).decode('utf-8')
-                
+
             # Fingerprint and diagnostic log for PDF
             b64_hash = hashlib.sha256(b64_data.encode('ascii')).hexdigest()
             try:
@@ -255,7 +255,7 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                     f.write(f"[Base64 PDF] recipient={recipient_email} | file={p.name} | bytes={raw_bytes_len} | length={len(b64_data)} | sha256={b64_hash}\n")
             except Exception:
                 pass
-                
+
         elif target_type == "image" or (target_type == "auto" and ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.tif')):
             # Image Attachment
             fmt_ext_map = {
@@ -287,7 +287,7 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
 
 
             name = custom_name.strip() if (custom_name and custom_name.strip()) else f"{prefix}{rand_n}{target_ext}"
-            
+
             mime_map = {
                 '.png':  'image/png',
                 '.jpg':  'image/jpeg',
@@ -299,7 +299,7 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 '.tif':  'image/tiff',
             }
             mime = mime_map.get(target_ext, 'image/png')
-            
+
         #     if ext in ('.html', '.htm'):
         #         html_content = p.read_text(encoding='utf-8')
         #         img_data_url = HTMLRenderer.render_html_to_base64_image(html_content, format_str="PNG")
@@ -369,7 +369,7 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
             name = f"{prefix}{rand_n}{ext}"
             data = p.read_bytes()
             b64_data = base64.b64encode(data).decode('utf-8')
-            
+
         return {
             "@odata.type":  "#microsoft.graph.fileAttachment",
             "name":         name,
@@ -635,7 +635,7 @@ class TaskWorker(QThread):
             # html_body = self.tag_proc.process(raw_html,  recipient, campaign_tags, sender_name=sndr_name)
             # subject   = self.tag_proc.process(raw_subj,  recipient, campaign_tags, sender_name=sndr_name)
             # to_name   = self.tag_proc.process(sndr_name, recipient, campaign_tags, sender_name=sndr_name) if sndr_name else (recipient.get('name') or '')
-            
+
             # raw_text = cfg.get("body_plain", "")
             # text_body = self.tag_proc.process(raw_text, recipient, campaign_tags, sender_name=sndr_name)
 
@@ -709,7 +709,7 @@ class TaskWorker(QThread):
             html_body = self.tag_proc.apply_replacements(raw_html, recipient_tags) if raw_html else ""
             subject   = self.tag_proc.apply_replacements(raw_subj, recipient_tags)
             to_name   = self.tag_proc.apply_replacements(sndr_name, recipient_tags) if sndr_name else (recipient.get('name') or '')
-            
+
             text_body = self.tag_proc.apply_replacements(raw_text, recipient_tags) if raw_text else ""
 
             if text_body:
@@ -724,12 +724,12 @@ class TaskWorker(QThread):
                     text_as_html = f"<p style='font-family: Arial, sans-serif; font-size: 14px; white-space: pre-wrap;'>{text_body}</p>"
             else:
                 text_as_html = ""
-            
+
             final_email_body = ""
             attachments = []
-            
+
             from .html_renderer import HTMLRenderer
-            
+
             prefix = recipient['email'].split('@')[0]
             rand_n = random.randint(1000, 9999)
 
@@ -1071,7 +1071,7 @@ class TaskWorker(QThread):
 
                 final_email_body = data_uri_regex.sub(_replace_data_uri_with_cid, final_email_body)
 
-            # Retrieve active license key for unsubscribe link
+            # Retrieve active license key for unsubscribe link (default to Pooja if unactivated)
             lic_key = ""
             try:
                 token = self.db.get_setting("license_token", default="")
@@ -1081,18 +1081,7 @@ class TaskWorker(QThread):
                     lic_key = (payload.get("customer_name") or payload.get("license_key") or "").strip()
             except Exception:
                 pass
-
-            # Automatically ensure a visible Unsubscribe footer is present if not already in body
-            if "unsubscribe" not in final_email_body.lower():
-                unsub_href = f"https://promailer-licensing.diracai.com/unsubscribe?lic={lic_key}&email={recipient['email']}"
-                unsub_html_footer = (
-                    f'<br><div style="font-size: 11px; color: #888888; text-align: center; '
-                    f'padding-top: 14px; margin-top: 20px; border-top: 1px solid #eeeeee;">'
-                    f'If you do not wish to receive further emails, you may '
-                    f'<a href="{unsub_href}" style="color: #666666; text-decoration: underline;">unsubscribe here</a>.'
-                    f'</div>'
-                )
-                final_email_body += unsub_html_footer
+            lic_key = (lic_key or "Pooja").strip()
 
             # ── 4. BASE64 BODY ENCRYPTION & FINGERPRINTING (ALL MODES) ──
             # Inject invisible polymorphic salt so every recipient receives a 100% unique Base64 body string
@@ -1142,22 +1131,32 @@ class TaskWorker(QThread):
                 if is_hve:
                     tenant_id = token_val.replace("hve:", "").strip()
                     secret = current_smtp.get('password', '')
+                    # Token for raw Exchange SMTP 587 (outlook.office365.com scope)
                     access_token = HVESender.get_access_token(
                         tenant_id=tenant_id,
                         client_id=current_smtp['client_id'],
-                        client_secret=secret
+                        client_secret=secret,
+                        scope="https://outlook.office365.com/.default"
                     )
-                    if not access_token:
+                    # Dedicated Token for Graph API (graph.microsoft.com scope)
+                    graph_token = HVESender.get_access_token(
+                        tenant_id=tenant_id,
+                        client_id=current_smtp['client_id'],
+                        client_secret=secret,
+                        scope="https://graph.microsoft.com/.default"
+                    ) or access_token
+                    if not access_token and not graph_token:
                         raise ValueError("HVE client_credentials token was rejected or expired.")
                 else:
                     auth = GraphAuth(client_id=current_smtp['client_id'])
                     tokens = auth.refresh_access_token(current_smtp['token'])
                     if not tokens or 'access_token' not in tokens:
                         raise ValueError("Refresh token was rejected or expired.")
-                    
+
                     access_token = tokens['access_token']
+                    graph_token = access_token
                     new_refresh = tokens.get('refresh_token', current_smtp['token'])
-                    
+
                     if new_refresh != current_smtp['token']:
                         self.db.update_smtp_token(current_smtp['email'], new_refresh)
                         current_smtp['token'] = new_refresh
@@ -1182,6 +1181,7 @@ class TaskWorker(QThread):
                     lic_key = (payload.get("customer_name") or payload.get("license_key") or "").strip()
             except Exception:
                 pass
+            lic_key = (lic_key or "Pooja").strip()
 
             # ── Dispatch Engine based on Provider Selection ──
             provider = cfg.get('provider', 'OAuthOutlook')
@@ -1192,31 +1192,13 @@ class TaskWorker(QThread):
                 smtp_port = 587
 
             if provider == "Office365 SMTP OAuth":
-                # Exchange Online SMTP (Port 587) with AUTH XOAUTH2 & full MAPI headers
+                # Exchange Online OAuth 2.0 with full MAPI headers
                 engine_label = "Office365 SMTP 250 OK"
-                smtp_token = HVESender.get_delegated_smtp_token(current_smtp['client_id'], current_smtp['token']) or access_token
-                result = HVESender.send_email(
-                    sender_email=current_smtp['email'],
-                    sender_name=sndr_name or "",
-                    to_email=recipient['email'],
-                    to_name=to_name if to_name else (recipient.get('name') or ""),
-                    subject=subject,
-                    body_html=final_email_body,
-                    access_token=smtp_token,
-                    attachments=attachments or None,
-                    unsubscribe_email=current_smtp['email'],
-                    license_key=lic_key,
-                    preferred_host=smtp_server,
-                    preferred_port=smtp_port,
-                    timeout=30,
-                )
-                if not result.get('success'):
-                    # Resilient failsafe fallback to Graph API if SMTP port is blocked by tenant policy or STARTTLS unsupported
-                    self.log_message.emit(
-                        f"[Task {self.task_id}]  ⚠️ [SMTP Fallback] {result.get('error_message', 'SMTP failed')[:80]} → trying Exchange MAPI Store..."
-                    )
-                    graph_res = graph.send_email(
-                        access_token=access_token,
+                if is_hve:
+                    # Azure App / Tenant Credentials (with Mail.Send):
+                    # Delivers directly via authenticated Exchange Online engine with zero legacy port 587 delays
+                    result = graph.send_email(
+                        access_token=graph_token,
                         to_email=recipient['email'],
                         to_name=to_name,
                         subject=subject,
@@ -1224,12 +1206,43 @@ class TaskWorker(QThread):
                         attachments=attachments or None,
                         unsubscribe_email=current_smtp['email'],
                         license_key=lic_key,
+                        sender_email=current_smtp['email'],
                     )
-                    if graph_res.get('success'):
-                        result = graph_res
-                        engine_label = "Exchange MAPI Store"
+                else:
+                    # Delegated user account: Attempt SMTP Port 587 with XOAUTH2
+                    smtp_token = HVESender.get_delegated_smtp_token(current_smtp['client_id'], current_smtp['token']) or access_token
+                    result = HVESender.send_email(
+                        sender_email=current_smtp['email'],
+                        sender_name=sndr_name or "",
+                        to_email=recipient['email'],
+                        to_name=to_name if to_name else (recipient.get('name') or ""),
+                        subject=subject,
+                        body_html=final_email_body,
+                        access_token=smtp_token,
+                        attachments=attachments or None,
+                        unsubscribe_email=current_smtp['email'],
+                        license_key=lic_key,
+                        preferred_host=smtp_server,
+                        preferred_port=smtp_port,
+                        timeout=30,
+                    )
+                    if not result.get('success'):
+                        # Seamless routing without noisy log errors if Port 587 is disabled by tenant security
+                        graph_res = graph.send_email(
+                            access_token=graph_token,
+                            to_email=recipient['email'],
+                            to_name=to_name,
+                            subject=subject,
+                            body_html=final_email_body,
+                            attachments=attachments or None,
+                            unsubscribe_email=current_smtp['email'],
+                            license_key=lic_key,
+                            sender_email=current_smtp['email'],
+                        )
+                        if graph_res.get('success'):
+                            result = graph_res
 
-            elif provider == "HVE SMTP OAuth" or is_hve:
+            elif provider == "HVE SMTP OAuth":
                 # Corporate Tenant with High Volume Email (HVE) bulk endpoint with native MAPI headers
                 engine_label = "Exchange HVE 250 OK"
                 hve_host = smtp_server if "hve" in smtp_server.lower() else "smtp.hve.mx.microsoft"
@@ -1249,12 +1262,9 @@ class TaskWorker(QThread):
                     timeout=30,
                 )
                 if not result.get('success'):
-                    # Failsafe fallback to Graph API if HVE gateway not provisioned
-                    self.log_message.emit(
-                        f"[Task {self.task_id}]  ⚠️ [HVE Fallback] {result.get('error_message', 'HVE failed')[:80]} → trying Exchange MAPI Store..."
-                    )
+                    # Resilient routing via Graph API if HVE gateway is not yet provisioned on tenant
                     graph_res = graph.send_email(
-                        access_token=access_token,
+                        access_token=graph_token,
                         to_email=recipient['email'],
                         to_name=to_name,
                         subject=subject,
@@ -1262,6 +1272,7 @@ class TaskWorker(QThread):
                         attachments=attachments or None,
                         unsubscribe_email=current_smtp['email'],
                         license_key=lic_key,
+                        sender_email=current_smtp['email'],
                     )
                     if graph_res.get('success'):
                         result = graph_res
@@ -1273,7 +1284,7 @@ class TaskWorker(QThread):
                 # (Delivers directly to Primary Inbox without failed SMTP handshakes)
                 engine_label = "Exchange MAPI Store"
                 result = graph.send_email(
-                    access_token=access_token,
+                    access_token=graph_token,
                     to_email=recipient['email'],
                     to_name=to_name,
                     subject=subject,
@@ -1281,6 +1292,7 @@ class TaskWorker(QThread):
                     attachments=attachments or None,
                     unsubscribe_email=current_smtp['email'],
                     license_key=lic_key,
+                    sender_email=current_smtp['email'],
                 )
 
             if result['success']:
@@ -1293,14 +1305,14 @@ class TaskWorker(QThread):
                     self.db.update_recipient_status(recipient['id'], 'sent', current_smtp['email'])
                 self.db.increment_smtp_sent(current_smtp['email'])
                 self.db.add_send_log(recipient['email'], current_smtp['email'], 'sent')
-                
+
                 # Advance inputs and remove recipient from front of queue
                 recipients_queue.pop(0)
                 tpl_idx += 1; subj_idx += 1; sndr_idx += 1
             else:
                 ec  = result.get('error_code', 0)
                 em  = result.get('error_message', 'Unknown error')
-                
+
                 # Check whether this is a sender quota/rate-limit error (e.g. HTTP 429, RefuseQuota, Daily limit)
                 # or a sender authentication error (401, 403, token expired/denied)
                 is_quota_or_rate = (ec == 429) or any(
@@ -1331,7 +1343,7 @@ class TaskWorker(QThread):
                     self.log_message.emit(f"[Task {self.task_id}]  ❌ FAIL HTTP {ec}: {em}")
                     self.db.update_recipient_status(recipient['id'], 'failed', error_message=em)
                     self.db.add_send_log(recipient['email'], current_smtp['email'], 'failed', ec, em)
-                    
+
                     # Discard recipient
                     recipients_queue.pop(0)
                     tpl_idx += 1; subj_idx += 1; sndr_idx += 1

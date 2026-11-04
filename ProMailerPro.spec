@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_all
 
 # Application source directories (strictly preserved and never filtered)
-app_datas = [('backend', 'backend'), ('ui_new', 'ui_new'), ('graph', 'graph'), ('services', 'services')]
+app_datas = [('backend', 'backend'), ('ui_new', 'ui_new'), ('graph', 'graph'), ('services', 'services'), ('templates', 'templates')]
 
 hiddenimports = [
     'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets',
