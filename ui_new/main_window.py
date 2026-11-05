@@ -96,13 +96,18 @@ class TagReferenceDialog(QDialog):
         ("#MAILRANDOM#", "Email prefix + random 4 or 5 digits (e.g. poojagupta2204200384102)"),
         ("#INVOICE#", "Random invoice  e.g. INV-26GFY-6366"),
         ("#ORDERID#", "Random order ID e.g. 8266367-2026"),
-        ("#TXNID#",   "Random 9-char transaction ID"),
+        ("#TXNID#",   "Random 9-char transaction ID (TXN-XXXXXXXXX)"),
         ("#TYPE#",    "Random payment type (Bank Transfer, PayPal, ACH, …)"),
         ("#AMOUNT#",  "Amount — custom or random in range"),
         ("#KEY#",     "Random UUID key e.g. 462aebf1-d3db-4609-…"),
         ("#GUID#",    "Random GUID e.g. 4dc5f965-7c10-48d8-…"),
         ("#SNUMBER#", "Random 6-digit serial number"),
+        ("#NUMBER#",  "Random 8-series number (e.g. 58492018)"),
+        ("#RANDOM#",  "Random 11-char uppercase alphanumeric (e.g. 6WA5KQ7G8T2)"),
         ("#ADDRESS#", "Cycles through uploaded address list"),
+        ("#SENDER#",  "Sender username prefix before @ (e.g. janatdmkmeeyah)"),
+        ("#NUMBER9#", "Always starts with 9 formatted as (9XX-XX-XXXX)"),
+        ("#UNSUBSCRIBE#", "One-click unsubscribe HTTPS URL (promailer cloud or custom)"),
     ]
 
     def __init__(self, parent=None):
