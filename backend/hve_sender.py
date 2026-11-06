@@ -124,10 +124,13 @@ class HVESender:
         msg["Thread-Index"] = base64.b64encode(os.urandom(22)).decode("ascii")
 
         # ── List-Unsubscribe Headers (RFC 8058 compliant: both https and mailto) ──
+        import urllib.parse
         unsub_parts = []
         active_lic = (license_key or "Pooja").strip()
+        encoded_to = urllib.parse.quote(to_email) if to_email else ""
+        encoded_lic = urllib.parse.quote(active_lic)
         if to_email:
-            unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={active_lic}&email={to_email}>")
+            unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={encoded_lic}&email={encoded_to}>")
         
         target_unsub_email = unsubscribe_email or sender_email or "unsubscribe@diracai.com"
         if target_unsub_email and to_email:
@@ -138,6 +141,9 @@ class HVESender:
         if unsub_parts:
             msg["List-Unsubscribe"] = ", ".join(unsub_parts)
             msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+            msg["List-ID"] = f"<bulletin.{domain}>"
+            msg["List-Help"] = f"<mailto:{target_unsub_email}?subject=Help>"
+            msg["Precedence"] = "bulk"
 
         # Separate inline attachments (e.g. embedded logo referenced by CID in HTML body)
         # from regular file attachments (e.g. PDF or downloaded files)

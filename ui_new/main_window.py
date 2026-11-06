@@ -546,6 +546,49 @@ class MainWindow(QMainWindow):
         timer.timeout.connect(self._refresh_global_stats)
         timer.start(2000)
 
+        # Automatic background cloud sync for unsubscribed contacts (every 30 seconds)
+        self.unsub_sync_timer = QTimer(self)
+        self.unsub_sync_timer.timeout.connect(self._background_unsub_sync)
+        self.unsub_sync_timer.start(30000)
+        # Also trigger an initial sync 2 seconds after startup
+        QTimer.singleShot(2000, self._background_unsub_sync)
+
+    def _background_unsub_sync(self):
+        """Silently sync unsubscribed contacts from cloud server in background thread."""
+        import threading
+        def _worker():
+            try:
+                from backend.license_validator import verify_token
+                token = self.db.get_setting("license_token", default="")
+                lic_key = ""
+                cust_name = ""
+                if token:
+                    payload = verify_token(token)
+                    lic_key = (payload.get("license_key") or "").strip()
+                    cust_name = (payload.get("customer_name") or "").strip()
+                import requests
+                url = "https://promailer-licensing.diracai.com/api/unsubscribed"
+                candidate_params = []
+                if lic_key:
+                    candidate_params.append({"lic": lic_key})
+                if cust_name and cust_name != lic_key:
+                    candidate_params.append({"lic": cust_name})
+                candidate_params.append({})
+                for params in candidate_params:
+                    try:
+                        resp = requests.get(url, params=params, timeout=4)
+                        if resp.status_code == 200:
+                            for item in resp.json().get("emails", []):
+                                em = (item.get("email") or "").strip().lower()
+                                unsub_at = item.get("unsubscribed_at")
+                                if em:
+                                    self.db.add_unsubscribed(em, unsubscribed_at=unsub_at)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        threading.Thread(target=_worker, daemon=True).start()
+
     def closeEvent(self, event):
         """Persist all task parameters and recipients when closing the app."""
         for p in self.task_panels:

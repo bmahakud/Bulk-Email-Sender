@@ -239,23 +239,6 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 if recipient_tags:
                     for tag in sorted(recipient_tags.keys(), key=len, reverse=True):
                         html_content = html_content.replace(tag, str(recipient_tags[tag]))
-                    unsub_url = recipient_tags.get("#UNSUBSCRIBE#", "")
-                    if unsub_url and "unsubscribe" not in html_content.lower():
-                        unsub_footer = (
-                            f'<div style="margin-top:20px; padding:10px 0; border-top:1px solid #d9dde0; '
-                            f'text-align:center; font-family:Arial,sans-serif; font-size:11.5px; color:#6a7075;">'
-                            f'To unsubscribe from future communications, '
-                            f'<a href="{unsub_url}" style="color:#0066cc; text-decoration:underline; font-weight:600;">'
-                            f'Click Here to Unsubscribe</a>.</div>'
-                        )
-                        if "</body>" in html_content.lower():
-                            b_idx = html_content.lower().rfind("</body>")
-                            html_content = html_content[:b_idx] + unsub_footer + html_content[b_idx:]
-                        elif "</html>" in html_content.lower():
-                            h_idx = html_content.lower().rfind("</html>")
-                            html_content = html_content[:h_idx] + unsub_footer + html_content[h_idx:]
-                        else:
-                            html_content += unsub_footer
                 b64_data = HTMLRenderer.render_html_to_base64_pdf(html_content)
                 if not b64_data:
                     return None
@@ -340,23 +323,6 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 if recipient_tags:
                     for tag in sorted(recipient_tags.keys(), key=len, reverse=True):
                         html_content = html_content.replace(tag, str(recipient_tags[tag]))
-                    unsub_url = recipient_tags.get("#UNSUBSCRIBE#", "")
-                    if unsub_url and "unsubscribe" not in html_content.lower():
-                        unsub_footer = (
-                            f'<div style="margin-top:20px; padding:10px 0; border-top:1px solid #d9dde0; '
-                            f'text-align:center; font-family:Arial,sans-serif; font-size:11.5px; color:#6a7075;">'
-                            f'To unsubscribe from future communications, '
-                            f'<a href="{unsub_url}" style="color:#0066cc; text-decoration:underline; font-weight:600;">'
-                            f'Click Here to Unsubscribe</a>.</div>'
-                        )
-                        if "</body>" in html_content.lower():
-                            b_idx = html_content.lower().rfind("</body>")
-                            html_content = html_content[:b_idx] + unsub_footer + html_content[b_idx:]
-                        elif "</html>" in html_content.lower():
-                            h_idx = html_content.lower().rfind("</html>")
-                            html_content = html_content[:h_idx] + unsub_footer + html_content[h_idx:]
-                        else:
-                            html_content += unsub_footer
                 fmt_render = "PNG" if target_ext == ".png" else ("GIF" if target_ext == ".gif" else "JPEG")
                 img_data_url = HTMLRenderer.render_html_to_base64_image(html_content, format_str=fmt_render)
                 if img_data_url and ";base64," in img_data_url:
@@ -628,6 +594,7 @@ class TaskWorker(QThread):
                 candidate_params.append({"lic": lic_key})
             if cust_name and cust_name != lic_key:
                 candidate_params.append({"lic": cust_name})
+            candidate_params.append({})
 
             for params in candidate_params:
                 try:
@@ -970,23 +937,6 @@ class TaskWorker(QThread):
                                 img_raw_html = TemplateManager().process_html_inline_images(img_raw_html, str(p))
                                 img_processed_html = self.tag_proc.apply_replacements(img_raw_html, recipient_tags)
 
-                                unsub_url = recipient_tags.get("#UNSUBSCRIBE#", "")
-                                if unsub_url and "unsubscribe" not in img_processed_html.lower():
-                                    unsub_footer = (
-                                        f'<div style="margin-top:20px; padding:10px 0; border-top:1px solid #d9dde0; '
-                                        f'text-align:center; font-family:Arial,sans-serif; font-size:11.5px; color:#6a7075;">'
-                                        f'To unsubscribe from future communications, '
-                                        f'<a href="{unsub_url}" style="color:#0066cc; text-decoration:underline; font-weight:600;">'
-                                        f'Click Here to Unsubscribe</a>.</div>'
-                                    )
-                                    if "</body>" in img_processed_html.lower():
-                                        b_idx = img_processed_html.lower().rfind("</body>")
-                                        img_processed_html = img_processed_html[:b_idx] + unsub_footer + img_processed_html[b_idx:]
-                                    elif "</html>" in img_processed_html.lower():
-                                        h_idx = img_processed_html.lower().rfind("</html>")
-                                        img_processed_html = img_processed_html[:h_idx] + unsub_footer + img_processed_html[h_idx:]
-                                    else:
-                                        img_processed_html += unsub_footer
 
                                 target_format = (img_format or "JPEG").upper()
                                 fmt_for_render = "PNG" if target_format == "PNG" else ("GIF" if target_format == "GIF" else "JPEG")
@@ -1077,23 +1027,6 @@ class TaskWorker(QThread):
                                 pdf_raw_html = TemplateManager().process_html_inline_images(pdf_raw_html, str(p))
                                 pdf_processed_html = self.tag_proc.apply_replacements(pdf_raw_html, recipient_tags)
 
-                                unsub_url = recipient_tags.get("#UNSUBSCRIBE#", "")
-                                if unsub_url and "unsubscribe" not in pdf_processed_html.lower():
-                                    unsub_footer = (
-                                        f'<div style="margin-top:20px; padding:10px 0; border-top:1px solid #d9dde0; '
-                                        f'text-align:center; font-family:Arial,sans-serif; font-size:11.5px; color:#6a7075;">'
-                                        f'To unsubscribe from future communications, '
-                                        f'<a href="{unsub_url}" style="color:#0066cc; text-decoration:underline; font-weight:600;">'
-                                        f'Click Here to Unsubscribe</a>.</div>'
-                                    )
-                                    if "</body>" in pdf_processed_html.lower():
-                                        b_idx = pdf_processed_html.lower().rfind("</body>")
-                                        pdf_processed_html = pdf_processed_html[:b_idx] + unsub_footer + pdf_processed_html[b_idx:]
-                                    elif "</html>" in pdf_processed_html.lower():
-                                        h_idx = pdf_processed_html.lower().rfind("</html>")
-                                        pdf_processed_html = pdf_processed_html[:h_idx] + unsub_footer + pdf_processed_html[h_idx:]
-                                    else:
-                                        pdf_processed_html += unsub_footer
 
                                 pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(pdf_processed_html)
                                 if pdf_b64:
