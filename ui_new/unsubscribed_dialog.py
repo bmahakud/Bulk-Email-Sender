@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox, QFileDialog, QFrame, QWidget
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QColor
 
 from backend.database import Database
@@ -85,6 +85,16 @@ class UnsubscribedDialog(QDialog):
         import threading
         threading.Thread(target=self._background_sync, daemon=True).start()
 
+        # Real-time auto-refresh timer: continuously polls cloud and updates UI every 10 seconds while dialog is open
+        self.poll_timer = QTimer(self)
+        self.poll_timer.timeout.connect(self._trigger_background_sync)
+        self.poll_timer.start(10000)
+
+    def _trigger_background_sync(self):
+        """Timer trigger for silent background sync."""
+        import threading
+        threading.Thread(target=self._background_sync, daemon=True).start()
+
     def _background_sync(self):
         """Silently sync from cloud in background without freezing the UI, then emit signal to refresh view."""
         try:
@@ -95,7 +105,13 @@ class UnsubscribedDialog(QDialog):
 
     def _on_sync_completed(self, total_server: int, added_cnt: int):
         """Called safely on GUI thread when background sync finishes."""
-        self._load_data()
+        if added_cnt > 0 or total_server != len(self._all_records):
+            self._load_data()
+
+    def closeEvent(self, event):
+        if hasattr(self, 'poll_timer') and self.poll_timer.isActive():
+            self.poll_timer.stop()
+        super().closeEvent(event)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -594,6 +610,7 @@ class UnsubscribedDialog(QDialog):
             candidate_params.append({"lic": lic_key})
         if cust_name and cust_name != lic_key:
             candidate_params.append({"lic": cust_name})
+        candidate_params.append({})
 
         all_server_records = {}  # email -> raw dict item
 

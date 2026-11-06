@@ -1542,7 +1542,8 @@ class TaskPanel(QWidget):
             "#NAME#  #EMAIL#  #USER#  #MAILRANDOM#  #TFN#  #TFN1#  #TFN2#  #DATE#  #TIME#\n"
             "#AMOUNT#  #INVOICE#  #ORDERID#  #ORDER#  #TXNID#  #TYPE#\n"
             "#LETTERS#  #LICENSE#  #REGARDS#  #ADDRESS#\n"
-            "#KEY#  #GUID#  #NUMBER#  #RANDOM#  #SERIAL#  #SNUMBER#"
+            "#KEY#  #GUID#  #NUMBER#  #RANDOM#  #SERIAL#  #SNUMBER#\n"
+            "#SENDER#  #NUMBER9#  #UNSUBSCRIBE#"
         )
         tags_txt.setFont(QFont("Courier New", 11))
         tags_txt.setStyleSheet("color:#00d4aa; background:#0d0e17; padding:12px; border-radius:5px;")

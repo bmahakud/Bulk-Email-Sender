@@ -16,7 +16,7 @@ class TagProcessor:
     Tags supported:
       #TFN1#, #TFN2#, #DATE#, #TIME#, #EMAIL#, #NAME#, #USER#, #MAILRANDOM#,
       #INVOICE#, #ORDERID#, #TXNID#, #TYPE#, #AMOUNT#,
-      #KEY#, #GUID#, #SNUMBER#, #ADDRESS#
+      #KEY#, #GUID#, #SNUMBER#, #ADDRESS#, #SENDER#, #NUMBER9#
     """
 
     PAYMENT_TYPES = [
@@ -58,7 +58,9 @@ class TagProcessor:
 
     @staticmethod
     def _rand_txnid() -> str:
-        return ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
+        # TXN-Random 9 Character Transaction ID
+        mix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=9))
+        return f"TXN-{mix}"
 
     @staticmethod
     def _rand_key() -> str:
@@ -70,12 +72,14 @@ class TagProcessor:
 
     @staticmethod
     def _rand_number() -> str:
-        return str(random.randint(100000000, 999999999))
+        # Randomly 8 series Number (8 digits)
+        return str(random.randint(10000000, 99999999))
 
     @staticmethod
     def _rand_random() -> str:
+        # Randomly generated 11 Series Number and alphabet Capital (e.g. 6WA5KQ7G8T2)
         chars = string.ascii_uppercase + string.digits
-        return ''.join(random.choices(chars, k=14))
+        return ''.join(random.choices(chars, k=11))
 
     @staticmethod
     def _rand_serial() -> str:
@@ -84,6 +88,14 @@ class TagProcessor:
     @staticmethod
     def _rand_snumber() -> str:
         return str(random.randint(1000000, 9999999))
+
+    @staticmethod
+    def _rand_number9() -> str:
+        # Always Start with 9 - formatted like (9XX-XX-XXXX)
+        b1 = "".join(random.choices(string.digits, k=2))
+        b2 = "".join(random.choices(string.digits, k=2))
+        b3 = "".join(random.choices(string.digits, k=4))
+        return f"9{b1}-{b2}-{b3}"
 
     @staticmethod
     def _rand_order() -> str:
@@ -134,6 +146,7 @@ class TagProcessor:
         key          = self._rand_key()
         guid         = self._rand_guid()
         number       = self._rand_number()
+        number9      = self._rand_number9()
         random_mix   = self._rand_random()
         serial       = self._rand_serial()
         snumber      = self._rand_snumber()
@@ -175,6 +188,13 @@ class TagProcessor:
 
         regards = sender_name if sender_name else "Alex John"
 
+        # Sender username prefix before @
+        # Example: 'janat meeyah <janatdmkmeeyah@outlook.com>' -> 'janatdmkmeeyah'
+        clean_s_email = sender_email.strip() if sender_email else ""
+        if "<" in clean_s_email and ">" in clean_s_email:
+            clean_s_email = clean_s_email.split("<")[1].split(">")[0].strip()
+        sender_user = clean_s_email.split("@")[0].strip() if "@" in clean_s_email else (clean_s_email or (sender_name or ""))
+
         # Unsubscribe link (points to promailer cloud server if license key available, else mailto fallback)
         custom_unsub = campaign_tags.get("custom_unsubscribe_url", "").strip()
         lic_key = campaign_tags.get("license_key", "").strip()
@@ -192,12 +212,16 @@ class TagProcessor:
             except Exception:
                 pass
 
-        active_lic = cust_name or lic_key
+        active_lic = cust_name or lic_key or "Pooja"
+
+        import urllib.parse
+        encoded_email = urllib.parse.quote(email) if email else ""
+        encoded_lic = urllib.parse.quote(active_lic)
 
         if custom_unsub:
-            unsub_link = custom_unsub
-        elif active_lic and email:
-            unsub_link = f"https://promailer-licensing.diracai.com/unsubscribe?lic={active_lic}&email={email}"
+            unsub_link = custom_unsub.replace("#EMAIL#", encoded_email).replace("#USER#", user)
+        elif email:
+            unsub_link = f"https://promailer-licensing.diracai.com/unsubscribe?lic={encoded_lic}&email={encoded_email}"
         else:
             target_sender = sender_email if sender_email else "optout@domain.com"
             unsub_link = f"mailto:{target_sender}?subject=Unsubscribe%20Request&body=Please%20unsubscribe%20my%20email:%20{email}"
@@ -220,6 +244,7 @@ class TagProcessor:
             "#KEY#": key,
             "#GUID#": guid,
             "#NUMBER#": number,
+            "#NUMBER9#": number9,
             "#RANDOM#": random_mix,
             "#SERIAL#": serial,
             "#SNUMBER#": snumber,
@@ -229,6 +254,7 @@ class TagProcessor:
             "#REGARDS#": regards,
             "#ADDRESS#": address,
             "#SENDER_EMAIL#": sender_email,
+            "#SENDER#": sender_user,
             "#UNSUBSCRIBE#": unsub_link,
         }
 
@@ -236,8 +262,9 @@ class TagProcessor:
         """Replace all tags in text using the provided dictionary."""
         if not text:
             return text
-        for tag, val in replacements.items():
-            text = text.replace(tag, str(val))
+        # Sort keys by length descending to prevent substring collisions (e.g. #SENDER_EMAIL# vs #SENDER#)
+        for tag in sorted(replacements.keys(), key=len, reverse=True):
+            text = text.replace(tag, str(replacements[tag]))
         return text
 
     # def process(self, text: str, recipient: Dict, campaign_tags: Optional[Dict] = None, sender_name: str = "") -> str:

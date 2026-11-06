@@ -96,13 +96,18 @@ class TagReferenceDialog(QDialog):
         ("#MAILRANDOM#", "Email prefix + random 4 or 5 digits (e.g. poojagupta2204200384102)"),
         ("#INVOICE#", "Random invoice  e.g. INV-26GFY-6366"),
         ("#ORDERID#", "Random order ID e.g. 8266367-2026"),
-        ("#TXNID#",   "Random 9-char transaction ID"),
+        ("#TXNID#",   "Random 9-char transaction ID (TXN-XXXXXXXXX)"),
         ("#TYPE#",    "Random payment type (Bank Transfer, PayPal, ACH, …)"),
         ("#AMOUNT#",  "Amount — custom or random in range"),
         ("#KEY#",     "Random UUID key e.g. 462aebf1-d3db-4609-…"),
         ("#GUID#",    "Random GUID e.g. 4dc5f965-7c10-48d8-…"),
         ("#SNUMBER#", "Random 6-digit serial number"),
+        ("#NUMBER#",  "Random 8-series number (e.g. 58492018)"),
+        ("#RANDOM#",  "Random 11-char uppercase alphanumeric (e.g. 6WA5KQ7G8T2)"),
         ("#ADDRESS#", "Cycles through uploaded address list"),
+        ("#SENDER#",  "Sender username prefix before @ (e.g. janatdmkmeeyah)"),
+        ("#NUMBER9#", "Always starts with 9 formatted as (9XX-XX-XXXX)"),
+        ("#UNSUBSCRIBE#", "One-click unsubscribe HTTPS URL (promailer cloud or custom)"),
     ]
 
     def __init__(self, parent=None):
@@ -540,6 +545,49 @@ class MainWindow(QMainWindow):
         timer = QTimer(self)
         timer.timeout.connect(self._refresh_global_stats)
         timer.start(2000)
+
+        # Automatic background cloud sync for unsubscribed contacts (every 30 seconds)
+        self.unsub_sync_timer = QTimer(self)
+        self.unsub_sync_timer.timeout.connect(self._background_unsub_sync)
+        self.unsub_sync_timer.start(30000)
+        # Also trigger an initial sync 2 seconds after startup
+        QTimer.singleShot(2000, self._background_unsub_sync)
+
+    def _background_unsub_sync(self):
+        """Silently sync unsubscribed contacts from cloud server in background thread."""
+        import threading
+        def _worker():
+            try:
+                from backend.license_validator import verify_token
+                token = self.db.get_setting("license_token", default="")
+                lic_key = ""
+                cust_name = ""
+                if token:
+                    payload = verify_token(token)
+                    lic_key = (payload.get("license_key") or "").strip()
+                    cust_name = (payload.get("customer_name") or "").strip()
+                import requests
+                url = "https://promailer-licensing.diracai.com/api/unsubscribed"
+                candidate_params = []
+                if lic_key:
+                    candidate_params.append({"lic": lic_key})
+                if cust_name and cust_name != lic_key:
+                    candidate_params.append({"lic": cust_name})
+                candidate_params.append({})
+                for params in candidate_params:
+                    try:
+                        resp = requests.get(url, params=params, timeout=4)
+                        if resp.status_code == 200:
+                            for item in resp.json().get("emails", []):
+                                em = (item.get("email") or "").strip().lower()
+                                unsub_at = item.get("unsubscribed_at")
+                                if em:
+                                    self.db.add_unsubscribed(em, unsubscribed_at=unsub_at)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        threading.Thread(target=_worker, daemon=True).start()
 
     def closeEvent(self, event):
         """Persist all task parameters and recipients when closing the app."""

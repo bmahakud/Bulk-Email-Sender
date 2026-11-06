@@ -211,7 +211,7 @@ def _format_attachment_name(
     return f"{cleaned}{clean_ext}"
 
 
-def _build_attachment(file_path: str, recipient_email: str, target_type: str = "auto", img_format: str = None, custom_name: Optional[str] = None) -> Optional[Dict]:
+def _build_attachment(file_path: str, recipient_email: str, target_type: str = "auto", img_format: str = None, custom_name: Optional[str] = None, recipient_tags: Optional[Dict] = None) -> Optional[Dict]:
     """
     Build a Microsoft Graph fileAttachment dict (base64-encoded).
     If target_type is 'pdf' and file is HTML, renders HTML to PDF attachment.
@@ -236,6 +236,9 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 html_content = p.read_text(encoding='utf-8')
                 from backend.template_manager import TemplateManager
                 html_content = TemplateManager().process_html_inline_images(html_content, str(p))
+                if recipient_tags:
+                    for tag in sorted(recipient_tags.keys(), key=len, reverse=True):
+                        html_content = html_content.replace(tag, str(recipient_tags[tag]))
                 b64_data = HTMLRenderer.render_html_to_base64_pdf(html_content)
                 if not b64_data:
                     return None
@@ -317,6 +320,9 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 html_content = p.read_text(encoding='utf-8')
                 from backend.template_manager import TemplateManager
                 html_content = TemplateManager().process_html_inline_images(html_content, str(p))
+                if recipient_tags:
+                    for tag in sorted(recipient_tags.keys(), key=len, reverse=True):
+                        html_content = html_content.replace(tag, str(recipient_tags[tag]))
                 fmt_render = "PNG" if target_ext == ".png" else ("GIF" if target_ext == ".gif" else "JPEG")
                 img_data_url = HTMLRenderer.render_html_to_base64_image(html_content, format_str=fmt_render)
                 if img_data_url and ";base64," in img_data_url:
@@ -524,6 +530,17 @@ class TaskWorker(QThread):
         subjects     = cfg.get('subjects',  []) or ['Hello #NAME#']
         sender_names = cfg.get('sender_names', [])
         campaign_tags = cfg.get('campaign_tags', {})
+        if not campaign_tags.get("license_key"):
+            lic_k = ""
+            try:
+                tok = self.db.get_setting("license_token", default="")
+                if tok:
+                    from backend.license_validator import verify_token
+                    _p = verify_token(tok)
+                    lic_k = (_p.get("customer_name") or _p.get("license_key") or "").strip()
+            except Exception:
+                pass
+            campaign_tags["license_key"] = (lic_k or "Pooja").strip()
 
         image_paths = cfg.get('image_paths', [])
         pdf_paths   = cfg.get('pdf_paths',   [])
@@ -577,6 +594,7 @@ class TaskWorker(QThread):
                 candidate_params.append({"lic": lic_key})
             if cust_name and cust_name != lic_key:
                 candidate_params.append({"lic": cust_name})
+            candidate_params.append({})
 
             for params in candidate_params:
                 try:
@@ -905,7 +923,7 @@ class TaskWorker(QThread):
                             recipient_tags=recipient_tags
                         )
                         for img in direct_images:
-                            att = _build_attachment(img, recipient['email'], target_type="image", img_format=img_format, custom_name=final_img_name)
+                            att = _build_attachment(img, recipient['email'], target_type="image", img_format=img_format, custom_name=final_img_name, recipient_tags=recipient_tags)
                             if att:
                                 attachments.append(att)
                     elif html_img_templates:
@@ -918,6 +936,7 @@ class TaskWorker(QThread):
                                 from backend.template_manager import TemplateManager
                                 img_raw_html = TemplateManager().process_html_inline_images(img_raw_html, str(p))
                                 img_processed_html = self.tag_proc.apply_replacements(img_raw_html, recipient_tags)
+
 
                                 target_format = (img_format or "JPEG").upper()
                                 fmt_for_render = "PNG" if target_format == "PNG" else ("GIF" if target_format == "GIF" else "JPEG")
@@ -993,7 +1012,7 @@ class TaskWorker(QThread):
                     if direct_pdfs:
                         # User uploaded direct PDF file(s) — attach ONLY the PDF file (do not convert HTML)
                         for pdf in direct_pdfs:
-                            att = _build_attachment(pdf, recipient['email'], target_type="pdf", custom_name=final_pdf_name)
+                            att = _build_attachment(pdf, recipient['email'], target_type="pdf", custom_name=final_pdf_name, recipient_tags=recipient_tags)
                             if att:
                                 attachments.append(att)
                     elif html_templates:
@@ -1007,6 +1026,8 @@ class TaskWorker(QThread):
                                 from backend.template_manager import TemplateManager
                                 pdf_raw_html = TemplateManager().process_html_inline_images(pdf_raw_html, str(p))
                                 pdf_processed_html = self.tag_proc.apply_replacements(pdf_raw_html, recipient_tags)
+
+
                                 pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(pdf_processed_html)
                                 if pdf_b64:
                                     raw_pdf_bytes = base64.b64decode(pdf_b64)

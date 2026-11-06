@@ -41,9 +41,12 @@ class GraphAPIClient:
         target_url = f"{self.base_url}/users/{sender_email}/sendMail" if sender_email else f"{self.base_url}/me/sendMail"
         
         # ── 1. Prepare Unsubscribe URIs (RFC 8058 compliant: https + mailto) ──
+        import urllib.parse
         unsub_parts = []
-        if license_key and to_email:
-            unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={license_key}&email={to_email}>")
+        encoded_to = urllib.parse.quote(to_email) if to_email else ""
+        encoded_lic = urllib.parse.quote(license_key or "Pooja")
+        if to_email:
+            unsub_parts.append(f"<https://promailer-licensing.diracai.com/unsubscribe?lic={encoded_lic}&email={encoded_to}>")
         
         target_unsub_email = unsubscribe_email or sender_email or "unsubscribe@diracai.com"
         if target_unsub_email and to_email:
@@ -72,6 +75,9 @@ class GraphAPIClient:
             if unsub_parts:
                 mime_msg["List-Unsubscribe"] = ", ".join(unsub_parts)
                 mime_msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+                mime_msg["List-ID"] = f"<bulletin.{domain}>"
+                mime_msg["List-Help"] = f"<mailto:{target_unsub_email}?subject=Help>"
+                mime_msg["Precedence"] = "bulk"
 
             inline_atts = [att for att in (attachments or []) if att.get("isInline")]
             regular_atts = [att for att in (attachments or []) if not att.get("isInline")]
@@ -186,6 +192,14 @@ class GraphAPIClient:
                 {
                     "id": "String {00020386-0000-0000-C000-000000000046} Name List-Unsubscribe-Post",
                     "value": "List-Unsubscribe=One-Click"
+                },
+                {
+                    "id": "String {00020386-0000-0000-C000-000000000046} Name List-ID",
+                    "value": f"<bulletin.{domain}>"
+                },
+                {
+                    "id": "String {00020386-0000-0000-C000-000000000046} Name Precedence",
+                    "value": "bulk"
                 }
             ]
         
