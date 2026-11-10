@@ -443,12 +443,17 @@ class SMTPTestWorker(QThread):
 
 class HtmlPreviewDialog(QDialog):
     """Dialog to preview uploaded HTML files or pasted HTML code (Visual + Source Code)."""
-    def __init__(self, title: str, items: list, sample_replacements: dict = None, initial_index: int = 0, parent=None):
+    def __init__(self, title: str, items: list, sample_replacements: dict = None, initial_index: int = 0, parent=None, strip_unsubscribe: bool = False):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumSize(920, 680)
         self.items = items or []
-        self.sample_replacements = sample_replacements or {}
+        self.strip_unsubscribe = strip_unsubscribe
+        if strip_unsubscribe and sample_replacements is not None:
+            from backend.tag_processor import TagProcessor
+            self.sample_replacements = TagProcessor.without_unsubscribe(sample_replacements)
+        else:
+            self.sample_replacements = sample_replacements or {}
         self.setStyleSheet(SHARED_SS + """
             QDialog { background:#1a1b27; color:#e8eaf0; }
         """)
@@ -539,9 +544,12 @@ class HtmlPreviewDialog(QDialog):
         if idx < 0 or idx >= len(self.items):
             return ""
         raw_html = self.items[idx][1] or ""
+        if self.strip_unsubscribe:
+            from backend.tag_processor import TagProcessor
+            raw_html = TagProcessor.strip_unsubscribe_for_attachment(raw_html)
         if self.chk_sample_tags.isChecked() and self.sample_replacements:
-            for tag, val in self.sample_replacements.items():
-                raw_html = raw_html.replace(tag, str(val))
+            for tag in sorted(self.sample_replacements.keys(), key=len, reverse=True):
+                raw_html = raw_html.replace(tag, str(self.sample_replacements[tag]))
         return raw_html
 
     def _refresh_preview(self):
@@ -2459,7 +2467,7 @@ class TaskPanel(QWidget):
         except Exception:
             return {}
 
-    def _preview_list_widget_html(self, list_widget: QListWidget, title: str, inline_b64: bool = True):
+    def _preview_list_widget_html(self, list_widget: QListWidget, title: str, inline_b64: bool = True, strip_unsubscribe: bool = False):
         if list_widget.count() == 0:
             QMessageBox.information(
                 self,
@@ -2501,7 +2509,8 @@ class TaskPanel(QWidget):
             items=items,
             sample_replacements=self._build_sample_replacements(),
             initial_index=min(selected_idx, len(items) - 1),
-            parent=self
+            parent=self,
+            strip_unsubscribe=strip_unsubscribe,
         )
         dlg.exec()
 
@@ -2553,14 +2562,16 @@ class TaskPanel(QWidget):
         self._preview_list_widget_html(
             self.img_att_list,
             "Image Attachment HTML Template",
-            inline_b64=True
+            inline_b64=True,
+            strip_unsubscribe=True
         )
 
     def _preview_pdf_html(self):
         self._preview_list_widget_html(
             self.pdf_att_list,
             "PDF Attachment HTML Template",
-            inline_b64=True
+            inline_b64=True,
+            strip_unsubscribe=True
         )
 
     # ── Campaign config builder ───────────────────────────────────────────────

@@ -50,7 +50,7 @@ class GraphAPIClient:
         
         target_unsub_email = unsubscribe_email or sender_email or "unsubscribe@diracai.com"
         if target_unsub_email and to_email:
-            unsub_parts.append(f"<mailto:{target_unsub_email}?subject=Unsubscribe%20{to_email}>")
+            unsub_parts.append(f"<mailto:{target_unsub_email}?subject=Unsubscribe%20{encoded_to}>")
         elif target_unsub_email:
             unsub_parts.append(f"<mailto:{target_unsub_email}?subject=Unsubscribe%20Request>")
 
