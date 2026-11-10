@@ -1107,8 +1107,8 @@ class TaskWorker(QThread):
                 unsub_html_footer = (
                     f'<br><div style="font-size: 11px; color: #888888; text-align: center; '
                     f'padding-top: 14px; margin-top: 20px; border-top: 1px solid #eeeeee;">'
-                    f'If you do not wish to receive further emails, you may '
-                    f'<a href="{unsub_href}" style="color: #666666; text-decoration: underline;">unsubscribe here</a>.'
+                    f'This email settings are set to receive "News and Updates." Please '
+                    f'<a href="{unsub_href}" style="color: #666666; text-decoration: underline;">unsubscribe here</a> to stop receiving emails.'
                     f'</div>'
                 )
                 if "</body>" in final_email_body.lower():
