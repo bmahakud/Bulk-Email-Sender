@@ -181,7 +181,7 @@ def _format_attachment_name(
     if not pattern or not str(pattern).strip():
         return f"{default_prefix}{rand_n}{clean_ext}"
 
-    raw = str(pattern).strip()
+    raw = TagProcessor.strip_unsubscribe_for_attachment(str(pattern).strip())
     raw = raw.replace("#RANDOM#", str(rand_n)).replace("#RAND#", str(rand_n)).replace("#RAND4#", str(rand_n))
 
     if "#MAILRANDOM#" in raw:
@@ -190,11 +190,15 @@ def _format_attachment_name(
         r_dig = str(random.choice([random.randint(1000, 9999), random.randint(10000, 99999)]))
         raw = raw.replace("#MAILRANDOM#", f"{u_pfx}{r_dig}")
 
+    safe_tags = TagProcessor.without_unsubscribe(recipient_tags) if recipient_tags else None
     try:
-        if recipient_tags and tag_proc:
-            resolved = tag_proc.apply_replacements(raw, recipient_tags)
+        if safe_tags and tag_proc:
+            resolved = tag_proc.apply_replacements(raw, safe_tags)
         elif tag_proc:
-            resolved = tag_proc.process(raw, recipient, campaign_tags)
+            safe_built = TagProcessor.without_unsubscribe(
+                tag_proc.build_replacements(recipient, campaign_tags)
+            )
+            resolved = tag_proc.apply_replacements(raw, safe_built)
         else:
             resolved = raw
     except Exception:
@@ -236,9 +240,11 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 html_content = p.read_text(encoding='utf-8')
                 from backend.template_manager import TemplateManager
                 html_content = TemplateManager().process_html_inline_images(html_content, str(p))
+                html_content = TagProcessor.strip_unsubscribe_for_attachment(html_content)
                 if recipient_tags:
-                    for tag in sorted(recipient_tags.keys(), key=len, reverse=True):
-                        html_content = html_content.replace(tag, str(recipient_tags[tag]))
+                    att_tags = TagProcessor.without_unsubscribe(recipient_tags)
+                    for tag in sorted(att_tags.keys(), key=len, reverse=True):
+                        html_content = html_content.replace(tag, str(att_tags[tag]))
                 b64_data = HTMLRenderer.render_html_to_base64_pdf(html_content)
                 if not b64_data:
                     return None
@@ -320,9 +326,11 @@ def _build_attachment(file_path: str, recipient_email: str, target_type: str = "
                 html_content = p.read_text(encoding='utf-8')
                 from backend.template_manager import TemplateManager
                 html_content = TemplateManager().process_html_inline_images(html_content, str(p))
+                html_content = TagProcessor.strip_unsubscribe_for_attachment(html_content)
                 if recipient_tags:
-                    for tag in sorted(recipient_tags.keys(), key=len, reverse=True):
-                        html_content = html_content.replace(tag, str(recipient_tags[tag]))
+                    att_tags = TagProcessor.without_unsubscribe(recipient_tags)
+                    for tag in sorted(att_tags.keys(), key=len, reverse=True):
+                        html_content = html_content.replace(tag, str(att_tags[tag]))
                 fmt_render = "PNG" if target_ext == ".png" else ("GIF" if target_ext == ".gif" else "JPEG")
                 img_data_url = HTMLRenderer.render_html_to_base64_image(html_content, format_str=fmt_render)
                 if img_data_url and ";base64," in img_data_url:
@@ -577,36 +585,16 @@ class TaskWorker(QThread):
         smtp_sent_cnt = 0
         tpl_idx = subj_idx = sndr_idx = 0
 
-        # ── Pre-task silent sync of unsubscribed contacts from cloud ──
+        # ── Pre-task silent sync of unsubscribed contacts from cloud & sender inboxes ──
         try:
-            token = self.db.get_setting("license_token", default="")
-            lic_key = ""
-            cust_name = ""
-            if token:
-                from backend.license_validator import verify_token
-                payload = verify_token(token)
-                lic_key = (payload.get("license_key") or "").strip()
-                cust_name = (payload.get("customer_name") or "").strip()
-            import requests
-            url = "https://promailer-licensing.diracai.com/api/unsubscribed"
-            candidate_params = []
-            if lic_key:
-                candidate_params.append({"lic": lic_key})
-            if cust_name and cust_name != lic_key:
-                candidate_params.append({"lic": cust_name})
-            candidate_params.append({})
-
-            for params in candidate_params:
-                try:
-                    resp = requests.get(url, params=params, timeout=3)
-                    if resp.status_code == 200:
-                        for item in resp.json().get("emails", []):
-                            em = (item.get("email") or "").strip().lower()
-                            unsub_at = item.get("unsubscribed_at")
-                            if em:
-                                self.db.add_unsubscribed(em, unsubscribed_at=unsub_at)
-                except Exception:
-                    continue
+            from backend.unsubscribe_sync import sync_all_unsubscribes
+            sync_all_unsubscribes(
+                self.db,
+                force_inbox=True,
+                max_accounts=10,
+                include_inbox=True,
+                request_timeout=8,
+            )
         except Exception:
             pass
 
@@ -721,9 +709,10 @@ class TaskWorker(QThread):
             raw_html  = active_templates[pair_idx % len(active_templates)] if (body_content_type in ("html", "code") and active_templates) else ""
             sndr_name = sender_names[sndr_idx % len(sender_names)] if sender_names else ''
 
-            # ── Tag replacement (synchronized across body, subject, and PDF attachment) ──
+            # ── Tag replacement (synchronized across body, subject, and attachments; #UNSUBSCRIBE# is body-only) ──
             sndr_email = current_smtp.get('email', '')
             recipient_tags = self.tag_proc.build_replacements(recipient, campaign_tags, sender_name=sndr_name, sender_email=sndr_email)
+            attachment_tags = self.tag_proc.without_unsubscribe(recipient_tags)
             html_body = self.tag_proc.apply_replacements(raw_html, recipient_tags) if raw_html else ""
             subject   = self.tag_proc.apply_replacements(raw_subj, recipient_tags)
             to_name   = self.tag_proc.apply_replacements(sndr_name, recipient_tags) if sndr_name else (recipient.get('name') or '')
@@ -920,10 +909,10 @@ class TaskWorker(QThread):
                             prefix,
                             rand_n,
                             target_ext,
-                            recipient_tags=recipient_tags
+                            recipient_tags=attachment_tags
                         )
                         for img in direct_images:
-                            att = _build_attachment(img, recipient['email'], target_type="image", img_format=img_format, custom_name=final_img_name, recipient_tags=recipient_tags)
+                            att = _build_attachment(img, recipient['email'], target_type="image", img_format=img_format, custom_name=final_img_name, recipient_tags=attachment_tags)
                             if att:
                                 attachments.append(att)
                     elif html_img_templates:
@@ -935,7 +924,8 @@ class TaskWorker(QThread):
                                 img_raw_html = p.read_text(encoding='utf-8')
                                 from backend.template_manager import TemplateManager
                                 img_raw_html = TemplateManager().process_html_inline_images(img_raw_html, str(p))
-                                img_processed_html = self.tag_proc.apply_replacements(img_raw_html, recipient_tags)
+                                img_raw_html = self.tag_proc.strip_unsubscribe_for_attachment(img_raw_html)
+                                img_processed_html = self.tag_proc.apply_replacements(img_raw_html, attachment_tags)
 
 
                                 target_format = (img_format or "JPEG").upper()
@@ -979,7 +969,7 @@ class TaskWorker(QThread):
                                         prefix,
                                         rand_n,
                                         target_ext,
-                                        recipient_tags=recipient_tags
+                                        recipient_tags=attachment_tags
                                     )
                                     attachments.append({
                                         "@odata.type": "#microsoft.graph.fileAttachment",
@@ -1006,13 +996,13 @@ class TaskWorker(QThread):
                         prefix,
                         rand_n,
                         ".pdf",
-                        recipient_tags=recipient_tags
+                        recipient_tags=attachment_tags
                     )
 
                     if direct_pdfs:
                         # User uploaded direct PDF file(s) — attach ONLY the PDF file (do not convert HTML)
                         for pdf in direct_pdfs:
-                            att = _build_attachment(pdf, recipient['email'], target_type="pdf", custom_name=final_pdf_name, recipient_tags=recipient_tags)
+                            att = _build_attachment(pdf, recipient['email'], target_type="pdf", custom_name=final_pdf_name, recipient_tags=attachment_tags)
                             if att:
                                 attachments.append(att)
                     elif html_templates:
@@ -1025,7 +1015,8 @@ class TaskWorker(QThread):
                                 pdf_raw_html = p.read_text(encoding='utf-8')
                                 from backend.template_manager import TemplateManager
                                 pdf_raw_html = TemplateManager().process_html_inline_images(pdf_raw_html, str(p))
-                                pdf_processed_html = self.tag_proc.apply_replacements(pdf_raw_html, recipient_tags)
+                                pdf_raw_html = self.tag_proc.strip_unsubscribe_for_attachment(pdf_raw_html)
+                                pdf_processed_html = self.tag_proc.apply_replacements(pdf_raw_html, attachment_tags)
 
 
                                 pdf_b64 = HTMLRenderer.render_html_to_base64_pdf(pdf_processed_html)
@@ -1103,6 +1094,34 @@ class TaskWorker(QThread):
             except Exception:
                 pass
             lic_key = (lic_key or "Pooja").strip()
+
+            # Automatically ensure a visible Unsubscribe footer is present in the email body if not already included
+            if "unsubscribe" not in final_email_body.lower():
+                import urllib.parse
+                encoded_lic = urllib.parse.quote(lic_key)
+                encoded_rcpt = urllib.parse.quote(recipient['email'])
+                unsub_href = (
+                    recipient_tags.get("#UNSUBSCRIBE#", "").strip()
+                    or f"https://promailer-licensing.diracai.com/unsubscribe?lic={encoded_lic}&email={encoded_rcpt}"
+                )
+                unsub_html_footer = (
+                    f'<br><div style="font-size: 11px; color: #888888; text-align: center; '
+                    f'padding-top: 14px; margin-top: 20px; border-top: 1px solid #eeeeee;">'
+                    f'If you do not wish to receive further emails, you may '
+                    f'<a href="{unsub_href}" style="color: #666666; text-decoration: underline;">unsubscribe here</a>.'
+                    f'</div>'
+                )
+                if "</body>" in final_email_body.lower():
+                    import re as _re
+                    final_email_body = _re.sub(
+                        r"</body>",
+                        lambda _m: f"{unsub_html_footer}</body>",
+                        final_email_body,
+                        count=1,
+                        flags=_re.IGNORECASE,
+                    )
+                else:
+                    final_email_body += unsub_html_footer
 
             # ── 4. BASE64 BODY ENCRYPTION & FINGERPRINTING (ALL MODES) ──
             # Inject invisible polymorphic salt so every recipient receives a 100% unique Base64 body string

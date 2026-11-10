@@ -107,7 +107,7 @@ class TagReferenceDialog(QDialog):
         ("#ADDRESS#", "Cycles through uploaded address list"),
         ("#SENDER#",  "Sender username prefix before @ (e.g. janatdmkmeeyah)"),
         ("#NUMBER9#", "Always starts with 9 formatted as (9XX-XX-XXXX)"),
-        ("#UNSUBSCRIBE#", "One-click unsubscribe HTTPS URL (promailer cloud or custom)"),
+        ("#UNSUBSCRIBE#", "One-click unsubscribe HTTPS URL — email body only (promailer cloud or custom)"),
     ]
 
     def __init__(self, parent=None):
@@ -554,37 +554,12 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(2000, self._background_unsub_sync)
 
     def _background_unsub_sync(self):
-        """Silently sync unsubscribed contacts from cloud server in background thread."""
+        """Silently sync unsubscribed contacts from cloud server and sender inboxes in background thread."""
         import threading
         def _worker():
             try:
-                from backend.license_validator import verify_token
-                token = self.db.get_setting("license_token", default="")
-                lic_key = ""
-                cust_name = ""
-                if token:
-                    payload = verify_token(token)
-                    lic_key = (payload.get("license_key") or "").strip()
-                    cust_name = (payload.get("customer_name") or "").strip()
-                import requests
-                url = "https://promailer-licensing.diracai.com/api/unsubscribed"
-                candidate_params = []
-                if lic_key:
-                    candidate_params.append({"lic": lic_key})
-                if cust_name and cust_name != lic_key:
-                    candidate_params.append({"lic": cust_name})
-                candidate_params.append({})
-                for params in candidate_params:
-                    try:
-                        resp = requests.get(url, params=params, timeout=4)
-                        if resp.status_code == 200:
-                            for item in resp.json().get("emails", []):
-                                em = (item.get("email") or "").strip().lower()
-                                unsub_at = item.get("unsubscribed_at")
-                                if em:
-                                    self.db.add_unsubscribed(em, unsubscribed_at=unsub_at)
-                    except Exception:
-                        continue
+                from backend.unsubscribe_sync import sync_all_unsubscribes
+                sync_all_unsubscribes(self.db, force_inbox=False)
             except Exception:
                 pass
         threading.Thread(target=_worker, daemon=True).start()

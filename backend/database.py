@@ -17,7 +17,7 @@ class Database:
     
     def get_connection(self):
         """Get database connection"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
         return conn
     
@@ -74,6 +74,25 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT UNIQUE NOT NULL,
                 unsubscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Tracks processed inbox List-Unsubscribe mailto messages so removed contacts do not re-appear
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS processed_unsub_messages (
+                msg_id TEXT PRIMARY KEY,
+                sender_email TEXT,
+                unsub_email TEXT,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Tracks user-removed suppression entries so background cloud/inbox syncs do not resurrect old records
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS removed_unsubscribes (
+                email TEXT PRIMARY KEY,
+                suppressed_unsub_at TEXT DEFAULT '',
+                removed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -495,25 +514,149 @@ class Database:
 
 
         # ── Unsubscribed Recipients Helpers ─────────────────────────────────────────
-    def add_unsubscribed(self, email: str, unsubscribed_at: Optional[str] = None) -> bool:
-        """Add an email to the unsubscribed suppression list with optional timestamp."""
+    @staticmethod
+    def _normalize_utc_ts(ts: Optional[str]) -> str:
+        """Normalize a timestamp string to 'YYYY-MM-DD HH:MM:SS' for safe chronological comparison."""
+        if not ts:
+            return ""
+        clean = str(ts).strip().replace("T", " ")
+        if clean.endswith("Z"):
+            clean = clean[:-1]
+        if "+" in clean:
+            clean = clean.split("+", 1)[0]
+        if "." in clean:
+            clean = clean.split(".", 1)[0]
+        return clean.strip()[:19]
+
+    def add_unsubscribed(
+        self,
+        email: str,
+        unsubscribed_at: Optional[str] = None,
+        respect_removal: bool = False,
+    ) -> bool:
+        """Add an email to the unsubscribed suppression list with optional timestamp.
+
+        When `respect_removal=True` (used by automated cloud/inbox sync), an email
+        previously removed by the user is NOT re-added unless `unsubscribed_at`
+        represents a newer unsubscribe event occurring after the removed record.
+        """
+        clean_email = (email or "").strip().lower()
+        if not clean_email:
+            return False
+        norm_event_ts = self._normalize_utc_ts(unsubscribed_at)
+
         conn = self.get_connection()
         cursor = conn.cursor()
         try:
-            if unsubscribed_at:
+            if respect_removal:
+                cursor.execute(
+                    "SELECT suppressed_unsub_at, removed_at FROM removed_unsubscribes WHERE LOWER(email) = ?",
+                    (clean_email,),
+                )
+                rem_row = cursor.fetchone()
+                if rem_row:
+                    prev_unsub = self._normalize_utc_ts(rem_row["suppressed_unsub_at"])
+                    removed_at = self._normalize_utc_ts(rem_row["removed_at"])
+                    cutoff = max(prev_unsub, removed_at)
+                    if norm_event_ts and cutoff and norm_event_ts > cutoff:
+                        # Genuinely new unsubscribe click after user removed the contact
+                        cursor.execute(
+                            "DELETE FROM removed_unsubscribes WHERE LOWER(email) = ?",
+                            (clean_email,),
+                        )
+                    else:
+                        return False
+            else:
+                # Explicit manual addition by user clears any prior removal tombstone
+                cursor.execute(
+                    "DELETE FROM removed_unsubscribes WHERE LOWER(email) = ?",
+                    (clean_email,),
+                )
+
+            if norm_event_ts:
                 cursor.execute(
                     "INSERT OR IGNORE INTO unsubscribed_recipients (email, unsubscribed_at) VALUES (?, ?)",
-                    (email.strip().lower(), unsubscribed_at)
+                    (clean_email, norm_event_ts),
                 )
             else:
                 cursor.execute(
                     "INSERT OR IGNORE INTO unsubscribed_recipients (email) VALUES (?)",
-                    (email.strip().lower(),)
+                    (clean_email,),
                 )
             conn.commit()
             return cursor.rowcount > 0
         except Exception:
             return False
+        finally:
+            conn.close()
+
+    def remove_unsubscribed(self, email: str) -> bool:
+        """Remove a single email from local suppression list and record a removal tombstone."""
+        clean_email = (email or "").strip().lower()
+        if not clean_email:
+            return False
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT unsubscribed_at FROM unsubscribed_recipients WHERE LOWER(email) = ?",
+                (clean_email,),
+            )
+            row = cursor.fetchone()
+            prev_ts = self._normalize_utc_ts(row["unsubscribed_at"]) if row else ""
+
+            cursor.execute(
+                "DELETE FROM unsubscribed_recipients WHERE LOWER(email) = ?",
+                (clean_email,),
+            )
+            deleted = cursor.rowcount > 0
+            cursor.execute(
+                """
+                INSERT INTO removed_unsubscribes (email, suppressed_unsub_at, removed_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(email) DO UPDATE SET
+                    suppressed_unsub_at = CASE
+                        WHEN excluded.suppressed_unsub_at != '' THEN excluded.suppressed_unsub_at
+                        ELSE removed_unsubscribes.suppressed_unsub_at
+                    END,
+                    removed_at = CURRENT_TIMESTAMP
+                """,
+                (clean_email, prev_ts),
+            )
+            conn.commit()
+            return deleted
+        finally:
+            conn.close()
+
+    def clear_all_unsubscribed(self) -> int:
+        """Clear all local unsubscribed contacts and record tombstones so sync does not resurrect them."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT email, unsubscribed_at FROM unsubscribed_recipients")
+            existing = cursor.fetchall()
+            for r in existing:
+                em = (r["email"] or "").strip().lower()
+                if not em:
+                    continue
+                prev_ts = self._normalize_utc_ts(r["unsubscribed_at"])
+                cursor.execute(
+                    """
+                    INSERT INTO removed_unsubscribes (email, suppressed_unsub_at, removed_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(email) DO UPDATE SET
+                        suppressed_unsub_at = CASE
+                            WHEN excluded.suppressed_unsub_at != '' THEN excluded.suppressed_unsub_at
+                            ELSE removed_unsubscribes.suppressed_unsub_at
+                        END,
+                        removed_at = CURRENT_TIMESTAMP
+                    """,
+                    (em, prev_ts),
+                )
+            cursor.execute("DELETE FROM unsubscribed_recipients")
+            count = cursor.rowcount
+            conn.commit()
+            return count
         finally:
             conn.close()
 
@@ -539,6 +682,53 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return [dict(r) for r in rows]
+
+    def is_unsub_message_processed(self, msg_id: str) -> bool:
+        """Check whether an inbox unsubscribe message ID has already been processed."""
+        if not msg_id:
+            return False
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT 1 FROM processed_unsub_messages WHERE msg_id = ?", (msg_id,))
+            return cursor.fetchone() is not None
+        finally:
+            conn.close()
+
+    def mark_unsub_message_processed(self, msg_id: str, sender_email: str, unsub_email: str):
+        """Record an inbox unsubscribe message ID as processed."""
+        if not msg_id:
+            return
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "INSERT OR IGNORE INTO processed_unsub_messages (msg_id, sender_email, unsub_email) VALUES (?, ?, ?)",
+                (msg_id, (sender_email or "").strip().lower(), (unsub_email or "").strip().lower())
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_active_smtp_for_unsub_sync(self, limit: int = 15) -> List[Dict]:
+        """Return active SMTP accounts prioritized by most recent usage for inbox unsubscribe polling."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT * FROM smtp_accounts
+                WHERE status != 'expired' AND token IS NOT NULL AND token != ''
+                ORDER BY
+                    CASE WHEN last_used IS NOT NULL THEN 0 ELSE 1 END ASC,
+                    last_used DESC,
+                    emails_sent DESC,
+                    id ASC
+                LIMIT ?
+            """, (int(limit),))
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
 
     # ── Global Campaign Clear Helper ───────────────────────────────────────────
     def clear_all_campaign_data(self):
